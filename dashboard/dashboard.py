@@ -2,6 +2,8 @@ import serial
 import matplotlib.pyplot as plt
 from collections import deque
 
+# For now, the serial will be directly from the USB port;
+# eventually it will be bluetooth
 PORT = "/dev/ttyUSB0"   # Linux
 # PORT = "COM3"         # Windows
 # PORT = "/dev/cu.SLAB_USBtoUART"  # Mac
