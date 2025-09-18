@@ -9,7 +9,7 @@ SERVICE_UUID = "66b53535-8ebb-4a24-bad7-ed67ebb935a2"
 CHARACTERISTIC_UUID = "a16cba2a-8165-4039-96c6-06e922eb6551"
 DEVICE_ADDRESS = "EC:E3:34:1C:3B:5E"
 
-# Data storage
+# Data storage, deques to limit the sample to 100 values
 data_ir = deque(maxlen=100)
 data_bpm = deque(maxlen=100)
 data_avg = deque(maxlen=100)
