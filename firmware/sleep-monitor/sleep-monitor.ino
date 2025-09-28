@@ -60,10 +60,11 @@ float currentMotionScore = 0;
 unsigned long lastBLEUpdate = 0;
 unsigned long lastMotionRead = 0;
 const unsigned long BLE_UPDATE_INTERVAL = 1000; // 1 second
-const unsigned long MOTION_READ_INTERVAL = 200; // 200ms (5Hz) - reduced to prioritize HR
+const unsigned long MOTION_READ_INTERVAL = 200; // 200ms (5Hz)
 
 // Heart Rate IR Filter Function
-long filterIR(long newValue) {
+long filterIR(long newValue) 
+{
   // Median filter
   hrMedianBuffer[hrMedianIndex] = newValue;
   hrMedianIndex = (hrMedianIndex + 1) % HR_MEDIAN_SIZE;
@@ -71,8 +72,10 @@ long filterIR(long newValue) {
   long sorted[HR_MEDIAN_SIZE];
   for (int i = 0; i < HR_MEDIAN_SIZE; i++) sorted[i] = hrMedianBuffer[i];
   
-  for (int i = 0; i < HR_MEDIAN_SIZE - 1; i++) {
-    for (int j = i + 1; j < HR_MEDIAN_SIZE; j++) {
+  for (int i = 0; i < HR_MEDIAN_SIZE - 1; i++) 
+  {
+    for (int j = i + 1; j < HR_MEDIAN_SIZE; j++) 
+    {
       if (sorted[j] < sorted[i]) {
         long tmp = sorted[i];
         sorted[i] = sorted[j];
@@ -92,7 +95,8 @@ long filterIR(long newValue) {
 }
 
 // BPM Filter Function
-float filterBPM(float bpm) {
+float filterBPM(float bpm) 
+{
   static float avg = 0;
   
   // Reject impossible values
@@ -114,7 +118,8 @@ float filterBPM(float bpm) {
 }
 
 // Motion Filter Function
-float filterMotion(float newValue) {
+float filterMotion(float newValue) 
+{
   // Median filter
   motionMedianBuffer[motionMedianIndex] = newValue;
   motionMedianIndex = (motionMedianIndex + 1) % MOTION_MEDIAN_SIZE;
@@ -123,9 +128,12 @@ float filterMotion(float newValue) {
   for (int i = 0; i < MOTION_MEDIAN_SIZE; i++) sorted[i] = motionMedianBuffer[i];
   
   // Simple bubble sort for median calculation
-  for (int i = 0; i < MOTION_MEDIAN_SIZE - 1; i++) {
-    for (int j = i + 1; j < MOTION_MEDIAN_SIZE; j++) {
-      if (sorted[j] < sorted[i]) {
+  for (int i = 0; i < MOTION_MEDIAN_SIZE - 1; i++) 
+  {
+    for (int j = i + 1; j < MOTION_MEDIAN_SIZE; j++) 
+    {
+      if (sorted[j] < sorted[i]) 
+      {
         float tmp = sorted[i];
         sorted[i] = sorted[j];
         sorted[j] = tmp;
@@ -143,7 +151,8 @@ float filterMotion(float newValue) {
   return sum / MOTION_AVG_SIZE;
 }
 
-void setup() {
+void setup() 
+{
   Serial.begin(115200);
   Serial.println("Initializing integrated BLE health monitor...");
   
@@ -152,7 +161,8 @@ void setup() {
   Wire.setClock(100000);
   
   // Initialize Heart Rate Sensor
-  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+  if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) 
+  {
     Serial.println("MAX30102 was not found. Please check wiring/power.");
     while (1);
   }
@@ -199,19 +209,22 @@ void setup() {
   delay(100);
 }
 
-void loop() {
+void loop() 
+{
   unsigned long currentTime = millis();
   
   // Read Heart Rate (continuous)
   long irValue = filterIR(particleSensor.getIR());
-  if (checkForBeat(irValue) == true) {
+  if (checkForBeat(irValue) == true) 
+  {
     long delta = currentTime - lastBeat;
     lastBeat = currentTime;
     
     float bpm = 60 / (delta / 1000.0);
     beatsPerMinute = filterBPM(bpm);
     
-    if (beatsPerMinute > 0) {
+    if (beatsPerMinute > 0) 
+    {
       rates[rateSpot++] = (byte)beatsPerMinute;
       rateSpot %= RATE_SIZE;
       
@@ -222,7 +235,8 @@ void loop() {
   }
   
   // Read Motion Data (10Hz)
-  if (currentTime - lastMotionRead >= MOTION_READ_INTERVAL) {
+  if (currentTime - lastMotionRead >= MOTION_READ_INTERVAL) 
+  {
     lastMotionRead = currentTime;
     
     // Read accelerometer data
@@ -231,7 +245,8 @@ void loop() {
     Wire.endTransmission(false);
     Wire.requestFrom(MPU_addr, 6, true);
     
-    if (Wire.available() >= 6) {
+    if (Wire.available() >= 6) 
+    {
       int16_t ax = Wire.read() << 8 | Wire.read();
       int16_t ay = Wire.read() << 8 | Wire.read();
       int16_t az = Wire.read() << 8 | Wire.read();
@@ -246,7 +261,8 @@ void loop() {
       static bool firstMotionReading = true;
       float motion = 0;
       
-      if (!firstMotionReading) {
+      if (!firstMotionReading) 
+      {
         motion = fabs(ax_g - prev_ax) + fabs(ay_g - prev_ay) + fabs(az_g - prev_az);
       } else {
         firstMotionReading = false;
@@ -264,7 +280,8 @@ void loop() {
       motionSampleCount++;
       
       // Check if epoch completed
-      if (currentTime - lastMotionEpoch >= MOTION_EPOCH_MS) {
+      if (currentTime - lastMotionEpoch >= MOTION_EPOCH_MS) 
+      {
         currentMotionScore = (motionSampleCount > 0) ? (motionSum / motionSampleCount) : 0;
         
         // Reset for next epoch
@@ -279,10 +296,12 @@ void loop() {
   }
   
   // Update BLE (1Hz)
-  if (currentTime - lastBLEUpdate >= BLE_UPDATE_INTERVAL) {
+  if (currentTime - lastBLEUpdate >= BLE_UPDATE_INTERVAL) 
+  {
     lastBLEUpdate = currentTime;
     
-    if (pCharacteristic) {
+    if (pCharacteristic) 
+    {
       // Create message with all sensor data
       String msg = "IR=" + String(irValue) +
                    ", BPM=" + String(beatsPerMinute, 1) +
@@ -290,7 +309,8 @@ void loop() {
                    ", Motion=" + String(currentMotionScore, 4);
       
       // Add finger detection
-      if (irValue < 50000) {
+      if (irValue < 50000) 
+      {
         msg += ", Status=No finger detected";
       } else {
         msg += ", Status=Active";
