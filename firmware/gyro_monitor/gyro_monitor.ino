@@ -81,7 +81,7 @@ void loop()
     int16_t ay = Wire.read() << 8 | Wire.read();
     int16_t az = Wire.read() << 8 | Wire.read();
     
-    // Convert raw accel to g units (same scale as your original code)
+    // Convert raw accel to g units
     float ax_g = ax / 16384.0;
     float ay_g = ay / 16384.0;
     float az_g = az / 16384.0;
