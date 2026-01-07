@@ -29,9 +29,7 @@ const uint8_t MPU_MOT_DUR = 0x20;
 const uint8_t MPU_INT_PIN = 25;
 const uint8_t MPU_MOTION_THRESHOLD = 20;    // 1-255, lower = more sensitive
 const uint8_t MPU_MOTION_DURATION = 1;      // Duration in ms before triggering
-const uint8_t MPU_INT_CFG_VALUE = 0x10;     // Active high, push-pull, clear on read
-const uint8_t MPU_INT_ENABLE_MOTION = 0x40; // Enable motion detection interrupt
-const float MPU_ACCEL_SCALE = 16384.0f;     // LSB/g for +/- 2g range
+const float MPU_ACCEL_SCALE = 16384.0f;     // LSB/g for abs(2g) range
 
 // MAX30102 Configuration
 const uint8_t HR_LED_AMPLITUDE = 0x1F;
@@ -69,8 +67,6 @@ const int BPM_AVG_SIZE = 5;
 float bpmBuffer[BPM_AVG_SIZE];
 int bpmIndex = 0;
 bool bpmStabilized = false;
-
-
 
 // Motion filtering buffers
 const int MOTION_MEDIAN_SIZE = 7;
@@ -226,14 +222,19 @@ void setup()
   Wire.write(MPU_MOTION_DURATION);
   Wire.endTransmission(true);
   
+  // Configure INT_PIN_CFG register:
+  //   Bits 5,6,7 = 0 = active high, push-pull, 50us pulse
+  //   Bit 4 = 1 = clear interrupt on any read
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(MPU_INT_PIN_CFG);
-  Wire.write(MPU_INT_CFG_VALUE);
+  Wire.write((1 << 4));
   Wire.endTransmission(true);
   
+  // Configure INT_ENABLE register:
+  // Bit 6 = 1 = motion detection interrupt enable
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(MPU_INT_ENABLE);
-  Wire.write(MPU_INT_ENABLE_MOTION);
+  Wire.write((1 << 6));
   Wire.endTransmission(true);
   
   // Attach hardware interrupt
