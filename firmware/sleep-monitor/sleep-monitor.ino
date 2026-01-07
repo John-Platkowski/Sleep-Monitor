@@ -10,6 +10,38 @@
 #define SERVICE_UUID "66b53535-8ebb-4a24-bad7-ed67ebb935a2"
 #define CHARACTERISTIC_UUID "a16cba2a-8165-4039-96c6-06e922eb6551"
 
+// I2C Configuration
+const uint8_t I2C_SDA_PIN = 21;
+const uint8_t I2C_SCL_PIN = 22;
+const uint32_t I2C_CLOCK_SPEED = 100000;
+
+// MPU6050 Registers
+const uint8_t MPU_ADDR = 0x68;
+const uint8_t MPU_PWR_MGMT_1 = 0x6B;
+const uint8_t MPU_ACCEL_XOUT_H = 0x3B;
+const uint8_t MPU_INT_PIN_CFG = 0x37;
+const uint8_t MPU_INT_ENABLE = 0x38;
+const uint8_t MPU_INT_STATUS = 0x3A;
+const uint8_t MPU_MOT_THR = 0x1F;
+const uint8_t MPU_MOT_DUR = 0x20;
+
+// MPU6050 Configuration Values
+const uint8_t MPU_INT_PIN = 25;
+const uint8_t MPU_MOTION_THRESHOLD = 20;    // 1-255, lower = more sensitive
+const uint8_t MPU_MOTION_DURATION = 1;      // Duration in ms before triggering
+const uint8_t MPU_INT_CFG_VALUE = 0x10;     // Active high, push-pull, clear on read
+const uint8_t MPU_INT_ENABLE_MOTION = 0x40; // Enable motion detection interrupt
+const float MPU_ACCEL_SCALE = 16384.0f;     // LSB/g for +/- 2g range
+
+// MAX30102 Configuration
+const uint8_t HR_LED_AMPLITUDE = 0x1F;
+const int32_t HR_FINGER_THRESHOLD = 50000;     // IR value below this = no finger
+
+// BPM Filtering Thresholds
+const float BPM_MIN_VALID = 30.0f;
+const float BPM_MAX_VALID = 200.0f;
+const float BPM_MAX_JUMP = 30.0f;
+
 // BLE Global Variables
 BLEServer *pServer = nullptr;
 BLEService *pService = nullptr;
@@ -18,18 +50,18 @@ BLECharacteristic *pCharacteristic = nullptr;
 // Heart Rate Monitor
 MAX30105 particleSensor;
 const byte RATE_SIZE = 4;
-byte rates[RATE_SIZE];
-byte rateSpot = 0;
-long lastBeat = 0;
+int32_t rates[RATE_SIZE];
+int32_t rateSpot = 0;
+unsigned long lastBeat = 0;
 float beatsPerMinute = 0;
 int beatAvg = 0;
 
 // Heart Rate IR filtering
 const int HR_MEDIAN_SIZE = 7;
 const int HR_AVG_SIZE = 4;
-long hrMedianBuffer[HR_MEDIAN_SIZE];
+int32_t hrMedianBuffer[HR_MEDIAN_SIZE];
 int hrMedianIndex = 0;
-long hrAvgBuffer[HR_AVG_SIZE];
+int32_t hrAvgBuffer[HR_AVG_SIZE];
 int hrAvgIndex = 0;
 
 // Heart Rate BPM stabilizer
@@ -38,8 +70,7 @@ float bpmBuffer[BPM_AVG_SIZE];
 int bpmIndex = 0;
 bool bpmStabilized = false;
 
-// MPU6050 Configuration
-const int MPU_addr = 0x68;
+
 
 // Motion filtering buffers
 const int MOTION_MEDIAN_SIZE = 7;
@@ -61,6 +92,7 @@ unsigned long lastBLEUpdate = 0;
 unsigned long lastMotionRead = 0;
 const unsigned long BLE_UPDATE_INTERVAL = 4000; // 4 seconds
 const unsigned long MOTION_READ_INTERVAL = 200; // 200ms
+volatile bool motionDetected = false;
 
 // Heart Rate IR Filter Function
 long filterIR(long newValue) 
@@ -100,10 +132,10 @@ float filterBPM(float bpm)
   static float avg = 0;
   
   // Reject impossible values
-  if (bpm < 30 || bpm > 200) return avg;
+  if (bpm < BPM_MIN_VALID || bpm > BPM_MAX_VALID) return avg;
   
   // Reject sudden jumps
-  if (bpmStabilized && abs(bpm - avg) > 30) return avg;
+  if (bpmStabilized && abs(bpm - avg) > BPM_MAX_JUMP) return avg;
   
   // Add to buffer
   bpmBuffer[bpmIndex] = bpm;
@@ -151,14 +183,20 @@ float filterMotion(float newValue)
   return sum / MOTION_AVG_SIZE;
 }
 
+
+void IRAM_ATTR motionISR()
+{
+  motionDetected = true;
+}
+
 void setup() 
 {
   Serial.begin(115200);
   Serial.println("Initializing integrated BLE health monitor...");
   
   // Initialize I2C
-  Wire.begin(21, 22);
-  Wire.setClock(100000);
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  Wire.setClock(I2C_CLOCK_SPEED);
   
   // Initialize Heart Rate Sensor
   if (!particleSensor.begin(Wire, I2C_SPEED_FAST)) 
@@ -168,15 +206,41 @@ void setup()
   }
   Serial.println("Heart rate sensor initialized.");
   particleSensor.setup();
-  particleSensor.setPulseAmplitudeRed(0x1F);
+  particleSensor.setPulseAmplitudeRed(HR_LED_AMPLITUDE);
   particleSensor.setPulseAmplitudeGreen(0);
   
   // Initialize MPU6050
-  Wire.beginTransmission(MPU_addr);
-  Wire.write(0x6B); // PWR_MGMT_1 register
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(MPU_PWR_MGMT_1);
   Wire.write(0);    // wake up the MPU-6050
   Wire.endTransmission(true);
-  Serial.println("MPU6050 initialized.");
+  
+  // Configure MPU6050 motion detection
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(MPU_MOT_THR);
+  Wire.write(MPU_MOTION_THRESHOLD);
+  Wire.endTransmission(true);
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(MPU_MOT_DUR);
+  Wire.write(MPU_MOTION_DURATION);
+  Wire.endTransmission(true);
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(MPU_INT_PIN_CFG);
+  Wire.write(MPU_INT_CFG_VALUE);
+  Wire.endTransmission(true);
+  
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(MPU_INT_ENABLE);
+  Wire.write(MPU_INT_ENABLE_MOTION);
+  Wire.endTransmission(true);
+  
+  // Attach hardware interrupt
+  pinMode(MPU_INT_PIN, INPUT);
+  attachInterrupt(digitalPinToInterrupt(MPU_INT_PIN), motionISR, RISING);
+  
+  Serial.println("MPU6050 initialized with motion interrupt on GPIO25.");
   
   // Initialize BLE
   BLEDevice::init("HealthMonitor_ESP32");
@@ -213,6 +277,21 @@ void loop()
 {
   unsigned long currentTime = millis();
   
+  // Handle motion interrupt
+  if (motionDetected)
+  {
+    motionDetected = false;
+    
+    // Clear interrupt by reading INT_STATUS register
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(MPU_INT_STATUS);
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_ADDR, 1, true);
+    Wire.read();
+    
+    Serial.println("Motion interrupt triggered!");
+  }
+  
   // Read Heart Rate (continuous)
   long irValue = filterIR(particleSensor.getIR());
   if (checkForBeat(irValue) == true) 
@@ -240,10 +319,10 @@ void loop()
     lastMotionRead = currentTime;
     
     // Read accelerometer data
-    Wire.beginTransmission(MPU_addr);
-    Wire.write(0x3B); // starting with register 0x3B (ACCEL_XOUT_H)
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(MPU_ACCEL_XOUT_H);
     Wire.endTransmission(false);
-    Wire.requestFrom(MPU_addr, 6, true);
+    Wire.requestFrom(MPU_ADDR, 6, true);
     
     if (Wire.available() >= 6) 
     {
@@ -252,9 +331,9 @@ void loop()
       int16_t az = Wire.read() << 8 | Wire.read();
       
       // Convert to g units
-      float ax_g = ax / 16384.0;
-      float ay_g = ay / 16384.0;
-      float az_g = az / 16384.0;
+      float ax_g = ax / MPU_ACCEL_SCALE;
+      float ay_g = ay / MPU_ACCEL_SCALE;
+      float az_g = az / MPU_ACCEL_SCALE;
       
       // Calculate motion
       static float prev_ax = 0, prev_ay = 0, prev_az = 0;
@@ -295,7 +374,7 @@ void loop()
     }
   }
   
-  // Update BLE (1Hz)
+  // Update BLE
   if (currentTime - lastBLEUpdate >= BLE_UPDATE_INTERVAL) 
   {
     lastBLEUpdate = currentTime;
@@ -303,13 +382,10 @@ void loop()
     if (pCharacteristic) 
     {
       // Create message with all sensor data
-      String msg = "IR=" + String(irValue) +
-                   ", BPM=" + String(beatsPerMinute, 1) +
-                   ", Avg BPM=" + String(beatAvg) +
-                   ", Motion=" + String(currentMotionScore, 4);
+      String msg = "IR=" + String(irValue) + ", BPM=" + String(beatsPerMinute, 1) + ", Avg BPM=" + String(beatAvg) + ", Motion=" + String(currentMotionScore, 4);
       
       // Add finger detection
-      if (irValue < 50000) 
+      if (irValue < HR_FINGER_THRESHOLD) 
       {
         msg += ", Status=No finger detected";
       } else {
