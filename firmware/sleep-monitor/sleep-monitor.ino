@@ -59,7 +59,7 @@ float currentMotionScore = 0;
 // Timing variables
 unsigned long lastBLEUpdate = 0;
 unsigned long lastMotionRead = 0;
-const unsigned long BLE_UPDATE_INTERVAL = 1000; // 1 second
+const unsigned long BLE_UPDATE_INTERVAL = 4000; // 4 seconds
 const unsigned long MOTION_READ_INTERVAL = 200; // 200ms (5Hz)
 
 // Heart Rate IR Filter Function
