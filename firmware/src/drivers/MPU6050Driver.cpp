@@ -25,7 +25,7 @@ MPU6050Driver::Data MPU6050Driver::read()
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x3B); // starting with register 0x3B (ACCEL_XOUT_H)
     Wire.endTransmission(false);
-    Wire.requestFrom(MPU_ADDR, 14, true); // request a total of 14 registers
+    Wire.requestFrom(MPU_ADDR, 12, true); // request a total of 12 registers, 6 for acceleration and 6 for gyroscope
     data.ax = (int16_t)(Wire.read() << 8 | Wire.read()); // 0x3B (ACCEL_XOUT_H) & 0x3C (ACCEL_XOUT_L)
     data.ay = (int16_t)(Wire.read() << 8 | Wire.read()); // 0x3D (ACCEL_YOUT_H) & 0x3E (ACCEL_YOUT_L)
     data.az = (int16_t)(Wire.read() << 8 | Wire.read()); // 0x3F (ACCEL_ZOUT_H) & 0x40 (ACCEL_ZOUT_L)

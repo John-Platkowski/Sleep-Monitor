@@ -37,14 +37,13 @@ void BioMonitor::isrTrampoline()
 {
     // Jump to instance method
     if (globalMonitor) globalMonitor -> handleISR();
-    vTaskDelete(NULL);
 }
 
 void BioMonitor::handleISR()
 {
     float val = 60.0; // Cook the data for now; should be sensor.read()
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xQueueSendFromISR(sensorQueue, &rawVal, &xHigherPriorityTaskWoken);
+    xQueueSendFromISR(sensorQueue, &val, &xHigherPriorityTaskWoken);
     
     // If the kalman task is waiting, switch immediately
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);

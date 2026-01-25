@@ -34,3 +34,5 @@ private:
     MAX30102Driver ppg;
     MPU6050Driver imu;
 };
+
+#endif
