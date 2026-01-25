@@ -46,7 +46,7 @@ public:
         return result;
     }
 
-    Matrix<T, C, R> transpose() const
+    Matrix<T, R, C> transpose() const
     {
         Matrix<T, C, R> result;
         for (int i = 0; i < R; i++)
@@ -58,11 +58,70 @@ public:
         }
         return result;
     }
+
+    Matrix<T, R, C> inverse() const
+    {
+        static_assert(R == C, "Inverse requires a square matrix");
+        T det = determinant();
+        if (det == 0) throw std::runtime_error("Matrix is singular, cannot compute inverse");
+        Matrix<T, R, C> adj = adjoint();
+        return adj * (1 / det);
+    }
+
+    T determinant() const
+    {
+        static_assert(R == C, "Determinant requires a square matrix");
+        T det = 0;
+        for (int i = 0; i < R; i++)
+        {
+            det += (*this)(i, 0) * adjoint()(i, 0);
+        }
+        return det;
+    }
+
+    Matrix<T, R, C> adjoint() const
+    {
+        Matrix<T, R, C> result;
+        for (int i = 0; i < R; i++)
+        {
+            for (int j = 0; j < C; j++)
+            {
+                result(i, j) = (*this)(j, i);
+            }
+        }
+        return result;
+    }
+
+    Matrix<T, R, C> cofactor() const
+    {
+        Matrix<T, R, C> result;
+        for (int i = 0; i < R; i++)
+        {
+            for (int j = 0; j < C; j++)
+            {
+                result(i, j) = (*this)(i, j) * (i + j) % 2 == 0 ? 1 : -1;
+            }
+        }
+        return result;
+    }
+
+    Matrix<T, R, C> minor() const
+    {
+        Matrix<T, R, C> result;
+        for (int i = 0; i < R; i++)
+        {
+            for (int j = 0; j < C; j++)
+            {
+                result(i, j) = (*this)(i, j) * (i + j) % 2 == 0 ? 1 : -1;
+            }
+        }
+        return result;
+    }
 };
 
 // Addition
 template <typename T, int R, int C>
-Matrix<T, R, C> operator+(const Matrix<T, R< C>& lhs, const Matrix<T, R, C>& rhs)
+Matrix<T, R, C> operator+(const Matrix<T, R C>& lhs, const Matrix<T, R, C>& rhs)
 {
     Matrix<T, R, C> res;
     for (int i = 0; i < R * C; i++) 
@@ -74,7 +133,7 @@ Matrix<T, R, C> operator+(const Matrix<T, R< C>& lhs, const Matrix<T, R, C>& rhs
 
 // Subtraction
 template <typename T, int R, int C>
-Matrix<T, R, C> operator-(const Matrix<T, R< C>& lhs, const Matrix<T, R, C>& rhs)
+Matrix<T, R, C> operator-(const Matrix<T, R C>& lhs, const Matrix<T, R, C>& rhs)
 {
     Matrix<T, R, C> res;
     for (int i = 0; i < R * C; i++) 
