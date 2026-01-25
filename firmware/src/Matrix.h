@@ -46,7 +46,7 @@ public:
         return result;
     }
 
-    Matrix<T, R, C> transpose() const
+    Matrix<T, C, R> transpose() const
     {
         Matrix<T, C, R> result;
         for (int i = 0; i < R; i++)
@@ -121,7 +121,7 @@ public:
 
 // Addition
 template <typename T, int R, int C>
-Matrix<T, R, C> operator+(const Matrix<T, R C>& lhs, const Matrix<T, R, C>& rhs)
+Matrix<T, R, C> operator+(const Matrix<T, R, C>& lhs, const Matrix<T, R, C>& rhs)
 {
     Matrix<T, R, C> res;
     for (int i = 0; i < R * C; i++) 
@@ -133,7 +133,7 @@ Matrix<T, R, C> operator+(const Matrix<T, R C>& lhs, const Matrix<T, R, C>& rhs)
 
 // Subtraction
 template <typename T, int R, int C>
-Matrix<T, R, C> operator-(const Matrix<T, R C>& lhs, const Matrix<T, R, C>& rhs)
+Matrix<T, R, C> operator-(const Matrix<T, R, C>& lhs, const Matrix<T, R, C>& rhs)
 {
     Matrix<T, R, C> res;
     for (int i = 0; i < R * C; i++) 
