@@ -7,6 +7,8 @@
 #include <freertos/queue.h>
 #include "Matrix.h"
 #include <Wire.h>
+#include "MAX30102Driver.h"
+#include "MPU6050Driver.h"
 
 class BioMonitor {
 public:
@@ -28,4 +30,7 @@ private:
 
     void updateKalman(float measurement);
     void updateBLE();
+
+    MAX30102Driver ppg;
+    MPU6050Driver imu;
 };

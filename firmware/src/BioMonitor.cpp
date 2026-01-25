@@ -52,7 +52,10 @@ void BioMonitor::handleISR()
 
 void BioMonitor::runLoop()
 {
-    float measurement;
+    // Should be measured in epochs 
+    auto imuData = imu.read();
+    auto ppgData = ppg.read();
+    /*float measurement;
 
     while (true)
     {
@@ -61,6 +64,17 @@ void BioMonitor::runLoop()
         {
             updateKalman(measurement);
         }
+    }*/
+    // Should be more sophisticated, e.g. sleep is separately managed alongside BLE sleep and the microcontroller sleep states
+    // For now just sleep and wake the sensors
+    if (batteryLow)
+    {
+        imu.sleep();
+        ppg.sleep();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    } else {
+        imu.wake();
+        ppg.wake();
     }
 }
 
