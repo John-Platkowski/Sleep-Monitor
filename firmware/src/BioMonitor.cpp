@@ -63,7 +63,7 @@ void BioMonitor::runLoop()
         {
             updateKalman(measurement);
         }
-    }*/
+    }
     // Should be more sophisticated, e.g. sleep is separately managed alongside BLE sleep and the microcontroller sleep states
     // For now just sleep and wake the sensors
     if (batteryLow)
@@ -74,7 +74,7 @@ void BioMonitor::runLoop()
     } else {
         imu.wake();
         ppg.wake();
-    }
+    }*/
 }
 
 void BioMonitor::updateKalman()

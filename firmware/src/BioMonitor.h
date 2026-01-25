@@ -21,6 +21,7 @@ private:
 
     static void taskTrampoline(void *pvParameters);
     static void isrTrampoline();
+    void handleISR();
 
     void runLoop();
 
