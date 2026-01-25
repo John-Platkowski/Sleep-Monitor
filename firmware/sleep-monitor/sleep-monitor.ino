@@ -6,6 +6,7 @@
 #include "MAX30105.h"
 #include "heartRate.h"
 
+
 // BLE Configuration
 #define SERVICE_UUID "66b53535-8ebb-4a24-bad7-ed67ebb935a2"
 #define CHARACTERISTIC_UUID "a16cba2a-8165-4039-96c6-06e922eb6551"
