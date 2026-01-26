@@ -59,63 +59,108 @@ public:
         return result;
     }
 
-    Matrix<T, R, C> inverse() const
+    // Returns submatrix with row and column removed
+    template <int R2 = R, int C2 = C>
+    typename std::enable_if<(R2 > 1 && C2 > 1), Matrix<T, R-1, C-1>>::type
+    submatrix(int row, int col) const
     {
-        static_assert(R == C, "Inverse requires a square matrix");
-        T det = determinant();
-        if (det == 0) throw std::runtime_error("Matrix is singular, cannot compute inverse");
-        Matrix<T, R, C> adj = adjoint();
-        return adj * (1 / det);
+        Matrix<T, R-1, C-1> result;
+        int ri = 0;
+        for (int i = 0; i < R; i++)
+        {
+            if (i == row) continue;
+            int ci = 0;
+            for (int j = 0; j < C; j++)
+            {
+                if (j == col) continue;
+                result(ri, ci) = (*this)(i, j);
+                ci++;
+            }
+            ri++;
+        }
+        return result;
     }
 
-    T determinant() const
+    // Determinant: Laplace expansion along first row
+    // Base case for 1x1
+    template <int N = R>
+    typename std::enable_if<(N == 1), T>::type
+    determinant() const
+    {
+        static_assert(R == C, "Determinant requires a square matrix");
+        return data[0];
+    }
+
+    // Base case for 2x2: ad - bc (avoids recursion overhead)
+    template <int N = R>
+    typename std::enable_if<(N == 2), T>::type
+    determinant() const
+    {
+        static_assert(R == C, "Determinant requires a square matrix");
+        return (*this)(0,0) * (*this)(1,1) - (*this)(0,1) * (*this)(1,0);
+    }
+
+    // General case: Laplace expansion along first row
+    template <int N = R>
+    typename std::enable_if<(N > 2), T>::type
+    determinant() const
     {
         static_assert(R == C, "Determinant requires a square matrix");
         T det = 0;
-        for (int i = 0; i < R; i++)
+        for (int j = 0; j < C; j++)
         {
-            det += (*this)(i, 0) * adjoint()(i, 0);
+            T sign = ((j % 2) == 0) ? 1 : -1;
+            det += sign * (*this)(0, j) * submatrix(0, j).determinant();
         }
         return det;
     }
 
-    Matrix<T, R, C> adjoint() const
+    // Minor(i,j): determinant of submatrix with row i and col j removed
+    T minor(int row, int col) const
     {
+        static_assert(R == C && R > 1, "Minor requires square matrix larger than 1x1");
+        return submatrix(row, col).determinant();
+    }
+
+    // Cofactor(i,j): (-1)^(i+j) * minor(i,j)
+    T cofactor(int row, int col) const
+    {
+        T sign = (((row + col) % 2) == 0) ? 1 : -1;
+        return sign * minor(row, col);
+    }
+
+    // Cofactor matrix: matrix of all cofactors
+    Matrix<T, R, C> cofactorMatrix() const
+    {
+        static_assert(R == C, "Cofactor matrix requires square matrix");
         Matrix<T, R, C> result;
         for (int i = 0; i < R; i++)
         {
             for (int j = 0; j < C; j++)
             {
-                result(i, j) = (*this)(j, i);
+                result(i, j) = cofactor(i, j);
             }
         }
         return result;
     }
 
-    Matrix<T, R, C> cofactor() const
+    // Adjugate: transpose of cofactor matrix
+    Matrix<T, R, C> adjugate() const
     {
-        Matrix<T, R, C> result;
-        for (int i = 0; i < R; i++)
-        {
-            for (int j = 0; j < C; j++)
-            {
-                result(i, j) = (*this)(i, j) * (i + j) % 2 == 0 ? 1 : -1;
-            }
-        }
-        return result;
+        return cofactorMatrix().transpose();
     }
 
-    Matrix<T, R, C> minor() const
+    // Inverse: adjugate / determinant
+    Matrix<T, R, C> inverse() const
     {
-        Matrix<T, R, C> result;
-        for (int i = 0; i < R; i++)
+        static_assert(R == C, "Inverse requires a square matrix");
+        T det = determinant();
+        if (std::abs(det) < static_cast<T>(1e-10))
         {
-            for (int j = 0; j < C; j++)
-            {
-                result(i, j) = (*this)(i, j) * (i + j) % 2 == 0 ? 1 : -1;
-            }
+            // Return zero matrix for singular case (avoid exception in embedded)
+            return Matrix<T, R, C>();
         }
-        return result;
+        return adjugate() * (static_cast<T>(1) / det);
     }
 };
 
