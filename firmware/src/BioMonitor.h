@@ -25,11 +25,21 @@ private:
 
     void runLoop();
 
-    // Kalman State: [HeartRate, Velocity]
-    Matrix<float, 2, 1> x;
-    Matrix<float, 2, 2> P;
+    // Kalman Filter for Heart Rate
+    // State: [HR, HR_velocity]^T - tracks heart rate and its rate of change
+    Matrix<float, 2, 1> x;      // State estimate
+    Matrix<float, 2, 2> P;      // Estimate covariance
+    
+    // System model (constant, defined in cpp)
+    static const Matrix<float, 2, 2> F;  // State transition
+    static const Matrix<float, 1, 2> H;  // Measurement matrix
+    static const Matrix<float, 2, 2> Q;  // Process noise covariance
+    static const Matrix<float, 1, 1> R;  // Measurement noise covariance
 
+    void predictKalman();
     void updateKalman(float measurement);
+    float getFilteredHR() const;
+    
     void updateBLE();
 
     MAX30102Driver ppg;
