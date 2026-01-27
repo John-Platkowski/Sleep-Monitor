@@ -10,7 +10,8 @@
 #include "MAX30102Driver.h"
 #include "MPU6050Driver.h"
 
-class BioMonitor {
+class BioMonitor 
+{
 public:
     BioMonitor();
     void begin();

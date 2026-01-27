@@ -7,7 +7,8 @@
 
 // Type (float/double), Rows, Columns
 template <typename T, int R, int C>
-class Matrix {
+class Matrix 
+{
 public:
     T data[R * C];
 
@@ -29,7 +30,7 @@ public:
     {
         return data[r * C + c];
     }
-
+    
     T& operator()(int r, int c)
     {
         return data[r * C + c];
@@ -187,6 +188,7 @@ Matrix<T, R, C> operator-(const Matrix<T, R, C>& lhs, const Matrix<T, R, C>& rhs
     }
     return res;
 }
+
 // Matrix Multiplication
 template <typename T, int R1, int C1, int R2, int C2>
 Matrix<T, R1, C2> operator*(const Matrix<T, R1, C1>& lhs, const Matrix<T, R2, C2>& rhs) 
