@@ -7,24 +7,13 @@
 class MAX30102Driver
 {
 public:
-    bool init()
-    {
-        return internalSensor.begin(Wire, I2C_SPEED_FAST);
-    }
-    void sleep()
-    {
-        internalSensor.shutDown();
-    }
-    void wake()
-    {
-        internalSensor.wakeUp();
-    }
+    bool init();
+    void sleep();
+    void wake();
 
-    float read()
-    {
-        return internalSensor.getIR();
-    }
+    // Returns raw IR value from sensor
+    uint32_t readIR();
     
 private:
-    MAX30105 internalSensor;
+    MAX30105 sensor;
 };
