@@ -39,6 +39,7 @@ bool BLEDriver::init()
 
 void BLEDriver::sleep()
 {
+    stopPeriodicNotify();
     pServer->stopAdvertising();
     pService->stop();
     pCharacteristic->setValue("Sleeping...");
@@ -61,4 +62,64 @@ void BLEDriver::notify(const String& data)
     pCharacteristic->setValue(data.c_str());
     pCharacteristic->notify();
     Serial.println("BLE notified: " + data);
+}
+
+void BLEDriver::startPeriodicNotify(uint32_t periodMs, BLENotifyCallback callback, void* context)
+{
+    notifyCallback = callback;
+    callbackContext = context;
+
+    if (notifyTimer != nullptr) 
+    {
+        xTimerStop(notifyTimer, 0);
+        xTimerDelete(notifyTimer, 0);
+    }
+
+    notifyTimer = xTimerCreate(
+        "BLE_Notify",       // Timer name
+        pdMS_TO_TICKS(periodMs),    // Period in ticks
+        pdTRUE,     // Auto-reload (repeating)
+        this,   // Timer ID (pass 'this' pointer)
+        timerCallback   // Callback function
+    );
+
+    if (notifyTimer != nullptr) 
+    {
+        xTimerStart(notifyTimer, 0);
+        Serial.println("BLE periodic notify started (" + String(periodMs) + "ms)");
+    }
+}
+
+void BLEDriver::stopPeriodicNotify()
+{
+    if (notifyTimer != nullptr) 
+    {
+        xTimerStop(notifyTimer, 0);
+        xTimerDelete(notifyTimer, 0);
+        notifyTimer = nullptr;
+        Serial.println("BLE periodic notify stopped");
+    }
+}
+
+void BLEDriver::setNotifyPeriod(uint32_t periodMs)
+{
+    if (notifyTimer != nullptr) 
+    {
+        xTimerChangePeriod(notifyTimer, pdMS_TO_TICKS(periodMs), 0);
+        Serial.println("BLE notify period changed to " + String(periodMs) + "ms");
+    }
+}
+
+void BLEDriver::timerCallback(TimerHandle_t xTimer)
+{
+    // Retrieve the BLEDriver instance from the timer ID
+    BLEDriver* driver = static_cast<BLEDriver*>(pvTimerGetTimerID(xTimer));
+    
+    if (driver && driver->notifyCallback && driver->pCharacteristic) 
+    {
+        String data = driver->notifyCallback(driver->callbackContext);
+        driver->pCharacteristic->setValue(data.c_str());
+        driver->pCharacteristic->notify();
+        Serial.println("BLE notified: " + data);
+    }
 }
