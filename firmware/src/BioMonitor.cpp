@@ -55,6 +55,16 @@ void BioMonitor::begin()
     Wire.begin();
     sensorQueue = xQueueCreate(10, sizeof(float));
 
+    // Initialize sensors
+    if (!ppg.init()) 
+    {
+        Serial.println("ERROR: MAX30102 initialization failed");
+    }
+    if (!imu.init()) 
+    {
+        Serial.println("ERROR: MPU6050 initialization failed");
+    }
+
     // Configure Interrupt
     pinMode(MPU_INT_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(MPU_INT_PIN), isrTrampoline, FALLING);
@@ -62,6 +72,9 @@ void BioMonitor::begin()
     // Function, Name, Stack Depth, *pvParameters, Priority, Handle
     xTaskCreate(taskTrampoline, "BioTask", 4096, this, 1, &taskHandle);
 
+    // Initialize BLE and start periodic notifications
+    ble.init();
+    ble.startPeriodicNotify(BLE_NOTIFY_PERIOD_MS, bleNotifyCallback, this);
 }
 
 void BioMonitor::taskTrampoline(void *pvParameters)
@@ -80,7 +93,7 @@ void BioMonitor::isrTrampoline()
 
 void BioMonitor::handleISR()
 {
-    float val = 60.0; // Cook the data for now; should be sensor.read()
+    float val = (float)ppg.readIR();
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     xQueueSendFromISR(sensorQueue, &val, &xHigherPriorityTaskWoken);
     
@@ -100,14 +113,18 @@ void BioMonitor::runLoop()
             // Kalman filter: predict then update
             predictKalman();
             updateKalman(measurement);
-            
-            // TODO: Send filtered HR via BLE
-            // float filteredHR = getFilteredHR();
         }
     }
     
     // TODO: Power management should be handled by a separate task/state machine
     // that coordinates sensor sleep, BLE sleep, and ESP32 light sleep modes
+}
+
+String BioMonitor::bleNotifyCallback(void* context)
+{
+    BioMonitor* monitor = static_cast<BioMonitor*>(context);
+    float hr = monitor->getFilteredHR();
+    return "HR=" + String(hr, 1);
 }
 
 // TODO: Fuse PPG with IMU data strictly for HR; motion data is not affected by HR, but motion may affect the PPG signal and thus HR.
@@ -153,9 +170,4 @@ void BioMonitor::updateKalman(float measurement)
 float BioMonitor::getFilteredHR() const
 {
     return x(0, 0);  // Return current HR estimate
-}
-
-void BioMonitor::updateBLE()
-{
-
 }

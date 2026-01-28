@@ -7,14 +7,21 @@
 #include <freertos/queue.h>
 #include "Matrix.h"
 #include <Wire.h>
-#include "MAX30102Driver.h"
-#include "MPU6050Driver.h"
+#include "drivers/MAX30102Driver.h"
+#include "drivers/MPU6050Driver.h"
+#include "drivers/BLEDriver.h"
+
+// Default BLE notification period in milliseconds
+#define BLE_NOTIFY_PERIOD_MS 1000
 
 class BioMonitor 
 {
 public:
     BioMonitor();
     void begin();
+    
+    // Public accessor for BLE callback
+    float getFilteredHR() const;
 
 private:
     TaskHandle_t taskHandle;
@@ -39,12 +46,13 @@ private:
 
     void predictKalman();
     void updateKalman(float measurement);
-    float getFilteredHR() const;
-    
-    void updateBLE();
+
+    // BLE notification callback (static for function pointer compatibility)
+    static String bleNotifyCallback(void* context);
 
     MAX30102Driver ppg;
     MPU6050Driver imu;
+    BLEDriver ble;
 };
 
 #endif
