@@ -25,7 +25,6 @@ public:
 
 private:
     TaskHandle_t taskHandle;
-    QueueHandle_t sensorQueue;
 
     static void taskTrampoline(void *pvParameters);
     static void isrTrampoline();

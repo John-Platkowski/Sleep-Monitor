@@ -4,9 +4,12 @@
 
 #define MPU_INT_PIN 25
 
-BioMonitor* globalMonitor = nullptr;
+// PPG sampling period - single source of truth for timing
+// 40ms = 25Hz sampling rate (MAX30102 default is 50 samples/sec)
+static constexpr uint32_t SAMPLE_PERIOD_MS = 40;
+static constexpr float dt = SAMPLE_PERIOD_MS / 1000.0f;  // Convert to seconds for Kalman
 
-const float dt = 1.0f;
+BioMonitor* globalMonitor = nullptr;
 
 // State transition matrix F: predicts next state from current
 // [HR_new]     [1  dt] [HR]        HR_new = HR + dt * velocity
@@ -53,7 +56,6 @@ BioMonitor::BioMonitor()
 void BioMonitor::begin()
 {
     Wire.begin();
-    sensorQueue = xQueueCreate(10, sizeof(float));
 
     // Initialize sensors
     if (!ppg.init()) 
@@ -93,26 +95,28 @@ void BioMonitor::isrTrampoline()
 
 void BioMonitor::handleISR()
 {
-    float val = (float)ppg.readIR();
+    // MPU6050 motion interrupt - can be used for motion artifact detection
+    // For now, just acknowledge the interrupt
+    // TODO: Set motion flag to increase Kalman R during motion
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    xQueueSendFromISR(sensorQueue, &val, &xHigherPriorityTaskWoken);
-    
-    // If the kalman task is waiting, switch immediately
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 void BioMonitor::runLoop()
 {
-    float measurement;
+    // Use shared SAMPLE_PERIOD_MS for consistent timing with Kalman dt
+    const TickType_t samplePeriod = pdMS_TO_TICKS(SAMPLE_PERIOD_MS);
+    TickType_t lastWakeTime = xTaskGetTickCount();
 
     while (true)
     {
-        // Block until the ISR sends data via the queue
-        if (xQueueReceive(sensorQueue, &measurement, portMAX_DELAY) == pdTRUE)
+        // Poll PPG sensor at consistent intervals
+        vTaskDelayUntil(&lastWakeTime, samplePeriod);
+        float bpm = ppg.processSample();
+        if (bpm > 0.0f)
         {
-            // Kalman filter: predict then update
             predictKalman();
-            updateKalman(measurement);
+            updateKalman(bpm);
         }
     }
     
