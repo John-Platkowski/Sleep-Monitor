@@ -19,26 +19,42 @@ const Matrix<float, 2, 2> BioMonitor::F = {
     0.0f, 1.0f
 };
 
+// Control matrix B: maps acceleration to expected state change
+// Acceleration affects expected HR velocity, not HR directly
+// [HR_new]     [0  ]           HR not directly affected by motion
+// [vel_new] += [k  ] * accel   velocity increases with motion (anticipate HR rise)
+static constexpr float ACCEL_TO_VEL_GAIN = 0.5f;  // TODO: tune empirically
+const Matrix<float, 2, 1> BioMonitor::B = {
+    0.0f,
+    ACCEL_TO_VEL_GAIN
+};
+
 // Measurement matrix H: maps state to measurement space
 // We only measure HR directly: z = [1 0] * [HR, vel]^T
 const Matrix<float, 1, 2> BioMonitor::H = {
     1.0f, 0.0f
 };
 
-// Process noise covariance Q: uncertainty in our motion model
+// Base process noise covariance Q: uncertainty in our motion model
 // Higher values = less trust in prediction, more responsive to measurements
-const Matrix<float, 2, 2> BioMonitor::Q = {
+const Matrix<float, 2, 2> BioMonitor::Q = { // TODO: tune empirically
     0.01f, 0.0f,
     0.0f,  0.01f
 };
 
+// Adaptive Q parameters
+static constexpr float Q_VEL_BASE = 0.01f; // TODO: tune empirically
+static constexpr float Q_VEL_HIGH = 0.1f; // TODO: tune empirically
+static constexpr float INNOVATION_THRESH = 5.0f; // TODO: tune empirically
+static constexpr float ADAPT_RATE = 0.1f;
+
 // Measurement noise covariance R: uncertainty in HR sensor readings
 // Higher values = less trust in measurements, smoother output
-const Matrix<float, 1, 1> BioMonitor::R = {
-    4.0f  // Typical PPG sensor variance ~2-5 BPM^2
-};
+static constexpr float R_BASE = 4.0f; // TODO: tune empirically
+static constexpr float R_HIGH = 16.0f; // TODO: tune empirically
+const Matrix<float, 1, 1> BioMonitor::R = { R_BASE };
 
-BioMonitor::BioMonitor()
+BioMonitor::BioMonitor() : motionDetected(false), lastAccelMag(0.0f)
 {
     globalMonitor = this;
     
@@ -51,6 +67,15 @@ BioMonitor::BioMonitor()
     P(0, 1) = 0.0f;
     P(1, 0) = 0.0f;
     P(1, 1) = 10.0f;   // Velocity variance
+    
+    // Initialize adaptive Q to base values
+    Q_adaptive(0, 0) = Q(0, 0);
+    Q_adaptive(0, 1) = 0.0f;
+    Q_adaptive(1, 0) = 0.0f;
+    Q_adaptive(1, 1) = Q_VEL_BASE;
+
+    // Initialize adaptive R to base values
+    R_adaptive(0, 0) = R(0, 0);
 }
 
 void BioMonitor::begin()
@@ -67,7 +92,11 @@ void BioMonitor::begin()
         Serial.println("ERROR: MPU6050 initialization failed");
     }
 
-    // Configure Interrupt
+    // Configure IMU motion detection interrupt
+    // threshold: ~40mg (20 * 2mg/LSB), duration: 10ms
+    imu.configureMotionInterrupt(20, 10);
+
+    // Configure GPIO interrupt for MPU motion detection
     pinMode(MPU_INT_PIN, INPUT_PULLUP);
     attachInterrupt(digitalPinToInterrupt(MPU_INT_PIN), isrTrampoline, FALLING);
 
@@ -95,9 +124,12 @@ void BioMonitor::isrTrampoline()
 
 void BioMonitor::handleISR()
 {
-    // MPU6050 motion interrupt - can be used for motion artifact detection
-    // For now, just acknowledge the interrupt
-    // TODO: Set motion flag to increase Kalman R during motion
+    // MPU6050 motion interrupt - set flag for main task to read acceleration
+    // Don't do I2C in ISR (blocking); just signal that motion occurred
+    motionDetected = true;
+    
+    // Increase Kalman R during motion for measurement noise adaptation
+    R_adaptive(0, 0) = R_HIGH;
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
@@ -112,10 +144,14 @@ void BioMonitor::runLoop()
     {
         // Poll PPG sensor at consistent intervals
         vTaskDelayUntil(&lastWakeTime, samplePeriod);
+        
+        // Get control input from IMU (only reads if motion interrupt fired)
+        float accelMag = readAccelIfMotion();
+        
         float bpm = ppg.processSample();
         if (bpm > 0.0f)
         {
-            predictKalman();
+            predictKalman(accelMag);
             updateKalman(bpm);
         }
     }
@@ -124,54 +160,95 @@ void BioMonitor::runLoop()
     // that coordinates sensor sleep, BLE sleep, and ESP32 light sleep modes
 }
 
+float BioMonitor::readAccelIfMotion()
+{
+    // Only read IMU when motion interrupt has fired (no polling)
+    if (motionDetected)
+    {
+        motionDetected = false;
+        
+        // Read acceleration and compute magnitude
+        MPU6050Driver::Data data = imu.read();
+        lastAccelMag = imu.getAccelerationMagnitude(data);
+        
+        // Clear the hardware interrupt latch
+        imu.clearInterrupt();
+        
+        return lastAccelMag;
+    }
+    
+    // Decay lastAccelMag toward zero when no new motion detected, smooth transition back to rest state
+    lastAccelMag *= 0.9f;
+    // Transition measurement noise back to rest state
+    R_adaptive(0, 0) += ADAPT_RATE * (R_BASE - R_adaptive(0, 0));
+    return lastAccelMag;
+}
+
 String BioMonitor::bleNotifyCallback(void* context)
 {
     BioMonitor* monitor = static_cast<BioMonitor*>(context);
     float hr = monitor->getFilteredHR();
-    return "HR=" + String(hr, 1);
+    float motion = monitor->getMotionScore();
+    return "HR=" + String(hr, 1) + ", Motion=" + String(motion, 2);
 }
 
-// TODO: Fuse PPG with IMU data strictly for HR; motion data is not affected by HR, but motion may affect the PPG signal and thus HR.
-// This can be done by dynamically increasing R when motion is detected, and returning to normal when motion is not detected.
-void BioMonitor::predictKalman()
+void BioMonitor::predictKalman(float controlInput)
 {
-    // Predict state: x = F * x
-    x = F * x;
+    // Predict state with control input: x = F * x + B * u
+    // Control input (acceleration magnitude) anticipates HR velocity changes
+    Matrix<float, 1, 1> u;
+    u(0, 0) = controlInput;
+    x = F * x + B * u;
     
-    // Predict covariance: P = F * P * F^T + Q
-    P = F * P * F.transpose() + Q;
+    // Predict covariance: P = F * P * F^T + Q_adaptive
+    // Using adaptive Q allows faster velocity changes during high HR variability
+    P = F * P * F.transpose() + Q_adaptive;
 }
 
 void BioMonitor::updateKalman(float measurement)
 {
-    // Kalman gain: K = P * H^T * (H * P * H^T + R)^-1
-    // For 1D measurement, (H * P * H^T + R) is scalar, so we can simplify
-    Matrix<float, 1, 1> S = H * P * H.transpose() + R;  // Innovation covariance
-    float S_inv = 1.0f / S(0, 0);  // Scalar inverse (avoid matrix inverse for 1x1)
-    
-    Matrix<float, 2, 1> K;  // Kalman gain
-    Matrix<float, 2, 1> PHt = P * H.transpose();
-    K(0, 0) = PHt(0, 0) * S_inv;
-    K(1, 0) = PHt(1, 0) * S_inv;
+    // Wrap measurement in matrix form
+    Matrix<float, 1, 1> z;
+    z(0, 0) = measurement;
     
     // Innovation (measurement residual): y = z - H * x
-    float y = measurement - (H * x)(0, 0);
+    Matrix<float, 1, 1> y = z - H * x;
+    
+    // Adapt process noise based on innovation magnitude
+    adaptProcessNoise(y(0, 0));
+    
+    // Innovation covariance: S = H * P * H^T + R
+    Matrix<float, 1, 1> S = H * P * H.transpose() + R_adaptive;
+    
+    // Kalman gain: K = P * H^T * S^(-1)
+    Matrix<float, 2, 1> K = P * H.transpose() * S.inverse();
     
     // Update state: x = x + K * y
-    x(0, 0) = x(0, 0) + K(0, 0) * y;
-    x(1, 0) = x(1, 0) + K(1, 0) * y;
+    x = x + K * y;
     
     // Update covariance: P = (I - K * H) * P
-    // Expanded: P = P - K * H * P
-    Matrix<float, 2, 2> KH;
-    KH(0, 0) = K(0, 0) * H(0, 0);  KH(0, 1) = K(0, 0) * H(0, 1);
-    KH(1, 0) = K(1, 0) * H(0, 0);  KH(1, 1) = K(1, 0) * H(0, 1);
-    
     Matrix<float, 2, 2> I = Matrix<float, 2, 2>::identity();
-    P = (I - KH) * P;
+    P = (I - K * H) * P;
+}
+
+// TODO: Replace innovation-based adaptation with sleep-stage-dependent Q values once sleep staging is implemented. 
+// Early sleep stages (N1/N2) have higher HRV and would benefit from higher Q_VEL, while deep sleep (N3) and REM have more stable patterns.
+void BioMonitor::adaptProcessNoise(float innovation)
+{
+    // Target Q velocity variance based on innovation magnitude
+    float targetQVel = (std::abs(innovation) > INNOVATION_THRESH) ? Q_VEL_HIGH : Q_VEL_BASE;
+    
+    // Exponential smoothing to avoid abrupt Q changes
+    // Q_new = Q_old + alpha * (target - Q_old)
+    Q_adaptive(1, 1) += ADAPT_RATE * (targetQVel - Q_adaptive(1, 1));
 }
 
 float BioMonitor::getFilteredHR() const
 {
     return x(0, 0);  // Return current HR estimate
+}
+
+float BioMonitor::getMotionScore() const
+{
+    return lastAccelMag;
 }
