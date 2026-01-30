@@ -53,16 +53,16 @@ MPU6050Driver::Data MPU6050Driver::read()
 {
     Data data;
     Wire.beginTransmission(MPU_ADDR);
-    Wire.write(0x3B); // starting with register 0x3B (ACCEL_XOUT_H)
+    Wire.write(0x3B); // starting register (ACCEL_XOUT_H)
     Wire.endTransmission(false);
     Wire.requestFrom(MPU_ADDR, 14, true); // 6 accel + 2 temp + 6 gyro = 14 bytes
-    data.ax = (int16_t)(Wire.read() << 8 | Wire.read()); // 0x3B-0x3C (acceleration x)
-    data.ay = (int16_t)(Wire.read() << 8 | Wire.read()); // 0x3D-0x3E (acceleration y)
-    data.az = (int16_t)(Wire.read() << 8 | Wire.read()); // 0x3F-0x40 (acceleration z)
-    Wire.read(); Wire.read();                            // 0x41-0x42 (temperature) - discard
-    data.gx = (int16_t)(Wire.read() << 8 | Wire.read()); // 0x43-0x44 (gyro x)
-    data.gy = (int16_t)(Wire.read() << 8 | Wire.read()); // 0x45-0x46 (gyro y)
-    data.gz = (int16_t)(Wire.read() << 8 | Wire.read()); // 0x47-0x48 (gyro z)
+    data.ax = (int16_t)(Wire.read() << 8 | Wire.read()); // acceleration x
+    data.ay = (int16_t)(Wire.read() << 8 | Wire.read()); // acceleration y
+    data.az = (int16_t)(Wire.read() << 8 | Wire.read()); // acceleration z
+    Wire.read(); Wire.read();                            // temperature, discarded
+    data.gx = (int16_t)(Wire.read() << 8 | Wire.read()); // gyro x
+    data.gy = (int16_t)(Wire.read() << 8 | Wire.read()); // gyro y
+    data.gz = (int16_t)(Wire.read() << 8 | Wire.read()); // gyro z
     return data;
 }
 
@@ -74,10 +74,10 @@ float MPU6050Driver::getAccelerationMagnitude(Data& data)
 
 void MPU6050Driver::sleep()
 {
-    writeRegister(0x6B, 0b01000000); // PWR_MGMT_1 register: Sleep mode
+    writeRegister(0x6B, 0b01000000); // PWR_MGMT_1 register, Sleep mode
 }
 
 void MPU6050Driver::wake()
 {
-    writeRegister(0x6B, 0b00000000); // PWR_MGMT_1 register: Wake mode
+    writeRegister(0x6B, 0b00000000); // PWR_MGMT_1 register, Wake mode
 }

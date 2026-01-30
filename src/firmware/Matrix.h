@@ -82,8 +82,9 @@ public:
         return result;
     }
 
-    // Determinant: Laplace expansion along first row
-    // Base case for 1x1
+    // Determinant; Laplace expansion along first row
+
+    // 1x1 determinant; a
     template <int N = R>
     typename std::enable_if<(N == 1), T>::type
     determinant() const
@@ -92,7 +93,7 @@ public:
         return data[0];
     }
 
-    // Base case for 2x2: ad - bc (avoids recursion overhead)
+    // 2x2 determinant; ad - bc
     template <int N = R>
     typename std::enable_if<(N == 2), T>::type
     determinant() const
@@ -101,7 +102,7 @@ public:
         return (*this)(0,0) * (*this)(1,1) - (*this)(0,1) * (*this)(1,0);
     }
 
-    // General case: Laplace expansion along first row
+    // General determinant; Laplace expansion along first row
     template <int N = R>
     typename std::enable_if<(N > 2), T>::type
     determinant() const
@@ -116,21 +117,21 @@ public:
         return det;
     }
 
-    // Minor(i,j): determinant of submatrix with row i and col j removed
+    // Minor; determinant of submatrix with row i and col j removed
     T minor(int row, int col) const
     {
         static_assert(R == C && R > 1, "Minor requires square matrix larger than 1x1");
         return submatrix(row, col).determinant();
     }
 
-    // Cofactor(i,j): (-1)^(i+j) * minor(i,j)
+    // Cofactor; (-1)^(i+j) * minor(i,j)
     T cofactor(int row, int col) const
     {
         T sign = (((row + col) % 2) == 0) ? 1 : -1;
         return sign * minor(row, col);
     }
 
-    // Cofactor matrix: matrix of all cofactors
+    // Cofactor matrix; matrix of all cofactors
     Matrix<T, R, C> cofactorMatrix() const
     {
         static_assert(R == C, "Cofactor matrix requires square matrix");
@@ -145,13 +146,13 @@ public:
         return result;
     }
 
-    // Adjugate: transpose of cofactor matrix
+    // Adjugate; transpose of cofactor matrix
     Matrix<T, R, C> adjugate() const
     {
         return cofactorMatrix().transpose();
     }
 
-    // Inverse for 1x1: optimized scalar inverse
+    // Inverse for 1x1; optimized scalar inverse
     template <int N = R>
     typename std::enable_if<(N == 1), Matrix<T, R, C>>::type
     inverse() const
@@ -166,7 +167,7 @@ public:
         return result;
     }
 
-    // Inverse for 2x2: optimized direct formula
+    // Inverse for 2x2; optimized direct formula
     template <int N = R>
     typename std::enable_if<(N == 2), Matrix<T, R, C>>::type
     inverse() const
@@ -186,7 +187,7 @@ public:
         return result;
     }
 
-    // Inverse for NxN (N > 2): adjugate / determinant
+    // Inverse for NxN (N > 2); adjugate / determinant
     template <int N = R>
     typename std::enable_if<(N > 2), Matrix<T, R, C>>::type
     inverse() const
@@ -195,14 +196,14 @@ public:
         T det = determinant();
         if (std::abs(det) < static_cast<T>(1e-10))
         {
-            // Return zero matrix for singular case (avoid exception in embedded)
+            // Prevent an exception
             return Matrix<T, R, C>();
         }
         return adjugate() * (static_cast<T>(1) / det);
     }
 };
 
-// Addition
+// Matrix addition
 template <typename T, int R, int C>
 Matrix<T, R, C> operator+(const Matrix<T, R, C>& lhs, const Matrix<T, R, C>& rhs)
 {
@@ -214,7 +215,7 @@ Matrix<T, R, C> operator+(const Matrix<T, R, C>& lhs, const Matrix<T, R, C>& rhs
     return res;
 }
 
-// Subtraction
+// Matrix subtraction
 template <typename T, int R, int C>
 Matrix<T, R, C> operator-(const Matrix<T, R, C>& lhs, const Matrix<T, R, C>& rhs)
 {
@@ -226,7 +227,7 @@ Matrix<T, R, C> operator-(const Matrix<T, R, C>& lhs, const Matrix<T, R, C>& rhs
     return res;
 }
 
-// Matrix Multiplication
+// Matrix multiplication
 template <typename T, int R1, int C1, int R2, int C2>
 Matrix<T, R1, C2> operator*(const Matrix<T, R1, C1>& lhs, const Matrix<T, R2, C2>& rhs) 
 {
@@ -248,7 +249,7 @@ Matrix<T, R1, C2> operator*(const Matrix<T, R1, C1>& lhs, const Matrix<T, R2, C2
     return res;
 }
 
-// Scalar Multiplication
+// Scalar multiplication
 template <typename T, int R, int C>
 Matrix<T, R, C> operator*(const Matrix<T, R, C>& lhs, T scalar) 
 {

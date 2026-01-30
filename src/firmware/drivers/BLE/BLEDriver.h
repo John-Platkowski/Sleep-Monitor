@@ -25,7 +25,6 @@ public:
     void wake();
     void notify(const String& data);
 
-    // Timer-based periodic notifications
     void startPeriodicNotify(uint32_t periodMs, BLENotifyCallback callback, void* context = nullptr);
     void stopPeriodicNotify();
     void setNotifyPeriod(uint32_t periodMs);
@@ -35,7 +34,6 @@ private:
     BLEService *pService = nullptr;
     BLECharacteristic *pCharacteristic = nullptr;
 
-    // FreeRTOS timer for periodic notifications
     TimerHandle_t notifyTimer = nullptr;
     BLENotifyCallback notifyCallback = nullptr;
     void* callbackContext = nullptr;

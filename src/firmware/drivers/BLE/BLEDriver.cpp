@@ -11,7 +11,7 @@ bool BLEDriver::init()
     pServer = BLEDevice::createServer();
     pService = pServer->createService(SERVICE_UUID);
 
-    // Create characteristic with Notify + Read
+    // Create characteristic
     pCharacteristic = pService->createCharacteristic(
         CHARACTERISTIC_UUID,
         BLECharacteristic::PROPERTY_READ |
@@ -76,11 +76,11 @@ void BLEDriver::startPeriodicNotify(uint32_t periodMs, BLENotifyCallback callbac
     }
 
     notifyTimer = xTimerCreate(
-        "BLE_Notify",       // Timer name
-        pdMS_TO_TICKS(periodMs),    // Period in ticks
-        pdTRUE,     // Auto-reload (repeating)
-        this,   // Timer ID (pass 'this' pointer)
-        timerCallback   // Callback function
+        "BLE_Notify", // Timer name
+        pdMS_TO_TICKS(periodMs), // Period in ticks
+        pdTRUE, // Auto-reload
+        this, // Timer ID
+        timerCallback // Callback function
     );
 
     if (notifyTimer != nullptr) 

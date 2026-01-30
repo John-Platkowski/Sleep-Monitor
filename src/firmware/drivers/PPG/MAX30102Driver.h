@@ -20,15 +20,12 @@ public:
     // Returns instantaneous BPM if beat detected, -1.0f otherwise
     float processSample();
     
-    // Check if finger is present on sensor
-    bool isFingerPresent();
-    
 private:
     MAX30105 sensor;
     TickType_t lastBeatTick = 0;
     bool firstBeat = true;
     
-    static constexpr uint32_t FINGER_THRESHOLD = 50000;  // IR threshold for finger detection
+    static constexpr uint32_t FINGER_THRESHOLD = 50000;  // IR reading threshold for finger presence detection
     static constexpr float MIN_BPM = 30.0f;
     static constexpr float MAX_BPM = 220.0f;
 };

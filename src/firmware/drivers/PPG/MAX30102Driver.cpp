@@ -40,7 +40,7 @@ float MAX30102Driver::processSample()
 {
     uint32_t irValue = sensor.getIR();
     
-    // No finger detected - reset state and return invalid
+    // No finger detected, reset state and return invalid
     if (irValue < FINGER_THRESHOLD)
     {
         firstBeat = true;
@@ -52,7 +52,7 @@ float MAX30102Driver::processSample()
     {
         TickType_t currentTick = xTaskGetTickCount();
         
-        // First beat after init/wake/finger placement - just record time
+        // First beat after init/wake/finger placement, just record time
         if (firstBeat)
         {
             lastBeatTick = currentTick;
@@ -60,16 +60,12 @@ float MAX30102Driver::processSample()
             return -1.0f;
         }
         
-        // Calculate delta time using FreeRTOS ticks (more consistent than millis())
-        // pdMS_TO_TICKS and tick math ensures consistent timing regardless of task scheduling
         TickType_t deltaTicks = currentTick - lastBeatTick;
         lastBeatTick = currentTick;
         
         // Convert ticks to milliseconds, then to BPM
-        // Using configTICK_RATE_HZ for precision (typically 1000 on ESP32)
         float deltaMs = (float)deltaTicks * (1000.0f / configTICK_RATE_HZ);
         
-        // Avoid division by zero
         if (deltaMs < 1.0f)
         {
             return -1.0f;
@@ -87,11 +83,4 @@ float MAX30102Driver::processSample()
     
     // No beat detected this sample
     return -1.0f;
-}
-
-bool MAX30102Driver::isFingerPresent()
-{
-    // Note: This reads sensor again - consider caching if called frequently
-    // For now, kept simple since processSample() is the primary interface
-    return sensor.getIR() >= FINGER_THRESHOLD;
 }
