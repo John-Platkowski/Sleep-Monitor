@@ -151,8 +151,45 @@ public:
         return cofactorMatrix().transpose();
     }
 
-    // Inverse: adjugate / determinant
-    Matrix<T, R, C> inverse() const
+    // Inverse for 1x1: optimized scalar inverse
+    template <int N = R>
+    typename std::enable_if<(N == 1), Matrix<T, R, C>>::type
+    inverse() const
+    {
+        static_assert(R == C, "Inverse requires a square matrix");
+        Matrix<T, 1, 1> result;
+        if (std::abs(data[0]) < static_cast<T>(1e-10))
+        {
+            return result;  // Return zero for singular
+        }
+        result.data[0] = static_cast<T>(1) / data[0];
+        return result;
+    }
+
+    // Inverse for 2x2: optimized direct formula
+    template <int N = R>
+    typename std::enable_if<(N == 2), Matrix<T, R, C>>::type
+    inverse() const
+    {
+        static_assert(R == C, "Inverse requires a square matrix");
+        T det = determinant();
+        if (std::abs(det) < static_cast<T>(1e-10))
+        {
+            return Matrix<T, R, C>();
+        }
+        Matrix<T, 2, 2> result;
+        T invDet = static_cast<T>(1) / det;
+        result(0, 0) =  (*this)(1, 1) * invDet;
+        result(0, 1) = -(*this)(0, 1) * invDet;
+        result(1, 0) = -(*this)(1, 0) * invDet;
+        result(1, 1) =  (*this)(0, 0) * invDet;
+        return result;
+    }
+
+    // Inverse for NxN (N > 2): adjugate / determinant
+    template <int N = R>
+    typename std::enable_if<(N > 2), Matrix<T, R, C>>::type
+    inverse() const
     {
         static_assert(R == C, "Inverse requires a square matrix");
         T det = determinant();
