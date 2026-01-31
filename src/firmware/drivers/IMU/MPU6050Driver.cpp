@@ -13,22 +13,31 @@ bool MPU6050Driver::init()
 
 void MPU6050Driver::configureMotionInterrupt(uint8_t threshold, uint8_t duration)
 {
-    // Set motion detection threshold (LSB = 2mg in default ±2g range)
-    writeRegister(0x1F, threshold);  // MOT_THR
+    // Ensure accelerometer is enabled, clear standby bits for accel
+    writeRegister(0x6C, 0x00); // PWR_MGMT_2 enable all axes
     
-    // Set motion detection duration (LSB = 1ms)
-    writeRegister(0x20, duration);   // MOT_DUR
+    // Configure high-pass filter for motion detection
+    writeRegister(0x1C, 0x01); // ACCEL_CONFIG, HPF = 5Hz
+    
+    // Set motion detection threshold
+    writeRegister(0x1F, threshold); // MOT_THR
+    
+    // Set motion detection duration
+    writeRegister(0x20, duration); // MOT_DUR
+    
+    // Configure motion detection control
+    writeRegister(0x69, 0x15); // MOT_DETECT_CTRL, delay counter, all axes
     
     // Enable motion detection interrupt
-    writeRegister(0x38, 0x40);       // INT_ENABLE: MOT_EN
+    writeRegister(0x38, 0x40); // INT_ENABLE, MOT_EN
     
-    // Configure interrupt pin: active low, push-pull, latched until cleared
-    writeRegister(0x37, 0x30);       // INT_PIN_CFG: LATCH_INT_EN, INT_RD_CLEAR
+    // Configure interrupt pin: ACTIVE LOW, push-pull, latched until cleared
+    writeRegister(0x37, 0xB0); // INT_PIN_CFG, INT_LEVEL=1, LATCH_INT_EN, INT_RD_CLEAR
 }
 
 void MPU6050Driver::clearInterrupt()
 {
-    // Reading INT_STATUS clears the interrupt (when INT_RD_CLEAR is set)
+    // Reading INT_STATUS clears the interrupt when INT_RD_CLEAR is set
     readRegister(0x3A);
 }
 
@@ -53,7 +62,7 @@ MPU6050Driver::Data MPU6050Driver::read()
 {
     Data data;
     Wire.beginTransmission(MPU_ADDR);
-    Wire.write(0x3B); // starting register (ACCEL_XOUT_H)
+    Wire.write(0x3B); // starting register ACCEL_XOUT_H
     Wire.endTransmission(false);
     Wire.requestFrom(MPU_ADDR, 14, true); // 6 accel + 2 temp + 6 gyro = 14 bytes
     data.ax = (int16_t)(Wire.read() << 8 | Wire.read()); // acceleration x
