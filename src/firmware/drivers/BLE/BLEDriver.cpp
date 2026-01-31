@@ -40,7 +40,7 @@ bool BLEDriver::init()
 void BLEDriver::sleep()
 {
     stopPeriodicNotify();
-    pServer->stopAdvertising();
+    BLEDevice::getAdvertising()->stop();
     pService->stop();
     pCharacteristic->setValue("Sleeping...");
     pCharacteristic->notify();

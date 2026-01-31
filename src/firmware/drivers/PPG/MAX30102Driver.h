@@ -1,8 +1,8 @@
 // Wrapper for the SparkFun MAX30102 Driver
 #pragma once
 #include <Wire.h>
-#include <MAX30105.h>
-#include <heartRate.h>
+#include "MAX30105.h"
+#include "heartRate.h"
 #include <Arduino.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>

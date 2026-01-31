@@ -7,9 +7,9 @@
 #include <freertos/queue.h>
 #include "Matrix.h"
 #include <Wire.h>
-#include "drivers/MAX30102Driver.h"
-#include "drivers/MPU6050Driver.h"
-#include "drivers/BLEDriver.h"
+#include "MAX30102Driver.h"
+#include "MPU6050Driver.h"
+#include "BLEDriver.h"
 
 // Default BLE notification period in milliseconds
 #define BLE_NOTIFY_PERIOD_MS 1000
