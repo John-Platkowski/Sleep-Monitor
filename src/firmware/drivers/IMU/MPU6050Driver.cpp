@@ -1,5 +1,5 @@
 #include "MPU6050Driver.h"
-
+// https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Register-Map1.pdf
 bool MPU6050Driver::init()
 {
     Wire.begin();
@@ -76,13 +76,20 @@ MPU6050Driver::Data MPU6050Driver::read()
     Wire.write(0x3B); // starting register ACCEL_XOUT_H
     Wire.endTransmission(false);
     Wire.requestFrom(MPU_ADDR, 14, true); // 6 accel + 2 temp + 6 gyro = 14 bytes
-    data.ax = (int16_t)(Wire.read() << 8 | Wire.read()); // acceleration x
-    data.ay = (int16_t)(Wire.read() << 8 | Wire.read()); // acceleration y
-    data.az = (int16_t)(Wire.read() << 8 | Wire.read()); // acceleration z
-    Wire.read(); Wire.read();                            // temperature, discarded
-    data.gx = (int16_t)(Wire.read() << 8 | Wire.read()); // gyro x
-    data.gy = (int16_t)(Wire.read() << 8 | Wire.read()); // gyro y
-    data.gz = (int16_t)(Wire.read() << 8 | Wire.read()); // gyro z
+    
+    uint8_t buffer[14];
+    for (int i = 0; i < 14; i++) 
+    {
+        buffer[i] = Wire.read();
+    }
+    
+    data.ax = (int16_t)(buffer[0] << 8 | buffer[1]);   // acceleration x
+    data.ay = (int16_t)(buffer[2] << 8 | buffer[3]);   // acceleration y
+    data.az = (int16_t)(buffer[4] << 8 | buffer[5]);   // acceleration z
+    // buffer[6], buffer[7] = temperature, discarded
+    data.gx = (int16_t)(buffer[8] << 8 | buffer[9]);   // gyro x
+    data.gy = (int16_t)(buffer[10] << 8 | buffer[11]); // gyro y
+    data.gz = (int16_t)(buffer[12] << 8 | buffer[13]); // gyro z
     return data;
 }
 
