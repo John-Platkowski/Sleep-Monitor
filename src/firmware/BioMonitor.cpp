@@ -80,16 +80,14 @@ BioMonitor::BioMonitor() : motionDetected(false), lastAccelMag(0.0f)
 
 void BioMonitor::begin()
 {
-    Wire.begin();
-
-    // Initialize sensors
-    if (!ppg.init()) 
-    {
-        Serial.println("ERROR: MAX30102 initialization failed");
-    }
+    // Initialize sensors (IMU init handles Wire.begin())
     if (!imu.init()) 
     {
         Serial.println("ERROR: MPU6050 initialization failed");
+    }
+    if (!ppg.init()) 
+    {
+        Serial.println("ERROR: MAX30102 initialization failed");
     }
 
     // Configure IMU motion detection interrupt

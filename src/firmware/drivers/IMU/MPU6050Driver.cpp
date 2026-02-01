@@ -4,10 +4,29 @@ bool MPU6050Driver::init()
 {
     Wire.begin();
     Wire.setClock(100000);
+    
+    // Verify device is present by reading WHO_AM_I register (should return 0x68)
+    uint8_t whoAmI = readRegister(0x75);
+    if (whoAmI != 0x68) 
+    {
+        Serial.print("ERROR: MPU6050 WHO_AM_I mismatch. Expected 0x68, got 0x");
+        Serial.println(whoAmI, HEX);
+        return false;
+    }
+    
+    // Wake up MPU6050
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x6B); // PWR_MGMT_1 register
     Wire.write(0); // set to zero (wakes up the MPU-6050)
-    Wire.endTransmission(true);
+    uint8_t error = Wire.endTransmission(true);
+    if (error != 0)
+    {
+        Serial.print("ERROR: MPU6050 I2C write failed with error: ");
+        Serial.println(error);
+        return false;
+    }
+    
+    Serial.println("MPU6050 initialized successfully");
     return true;
 }
 
@@ -71,11 +90,25 @@ uint8_t MPU6050Driver::readRegister(uint8_t reg)
 
 MPU6050Driver::Data MPU6050Driver::read()
 {
-    Data data;
+    Data data = {0, 0, 0, 0, 0, 0};
+    
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x3B); // starting register ACCEL_XOUT_H
-    Wire.endTransmission(false);
-    Wire.requestFrom(MPU_ADDR, 14, true); // 6 accel + 2 temp + 6 gyro = 14 bytes
+    uint8_t error = Wire.endTransmission(false);
+    if (error != 0)
+    {
+        Serial.print("ERROR: MPU6050 read setup failed: ");
+        Serial.println(error);
+        return data;
+    }
+    
+    uint8_t bytesReceived = Wire.requestFrom(MPU_ADDR, (uint8_t)14, (uint8_t)true);
+    if (bytesReceived != 14) 
+    {
+        Serial.print("ERROR: MPU6050 expected 14 bytes, got ");
+        Serial.println(bytesReceived);
+        return data;
+    }
     
     uint8_t buffer[14];
     for (int i = 0; i < 14; i++) 
