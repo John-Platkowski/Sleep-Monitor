@@ -13,26 +13,37 @@ bool MPU6050Driver::init()
 
 void MPU6050Driver::configureMotionInterrupt(uint8_t threshold, uint8_t duration)
 {
-    // Ensure accelerometer is enabled, clear standby bits for accel
+    // Reset device to known state
+    writeRegister(0x6B, 0x80); // PWR_MGMT_1 Device reset
+    delay(100); // Wait for reset to complete
+    writeRegister(0x6B, 0x00); // Wake up from reset
+    
+    // Configure sample rate 1kHz / (1 + 4) = 200Hz
+    writeRegister(0x19, 0x04); // SMPLRT_DIV
+    
+    // Configure DLPF for motion detection Accel BW ~20Hz
+    writeRegister(0x1A, 0x04); // CONFIG DLPF_CFG = 4
+    
+    // Configure accelerometer, +/- 2g range
+    writeRegister(0x1C, 0x00); // ACCEL_CONFIG AFS_SEL = 0
+    
+    // Enable all accelerometer axes
     writeRegister(0x6C, 0x00); // PWR_MGMT_2 enable all axes
     
-    // Configure high-pass filter for motion detection
-    writeRegister(0x1C, 0x01); // ACCEL_CONFIG, HPF = 5Hz
-    
-    // Set motion detection threshold
+    // Set motion detection threshold threshold * 2mg per LSB
     writeRegister(0x1F, threshold); // MOT_THR
     
     // Set motion detection duration
     writeRegister(0x20, duration); // MOT_DUR
     
-    // Configure motion detection control
-    writeRegister(0x69, 0x15); // MOT_DETECT_CTRL, delay counter, all axes
+    // Configure motion detection decrement rate
+    writeRegister(0x69, 0x15); // MOT_DETECT_CTRL
     
     // Enable motion detection interrupt
-    writeRegister(0x38, 0x40); // INT_ENABLE, MOT_EN
+    writeRegister(0x38, 0x40); // INT_ENABLE MOT_EN = 1
     
-    // Configure interrupt pin: ACTIVE LOW, push-pull, latched until cleared
-    writeRegister(0x37, 0xB0); // INT_PIN_CFG, INT_LEVEL=1, LATCH_INT_EN, INT_RD_CLEAR
+    // Configure interrupt pin, Active LOW, push-pull, latched, clear on INT_STATUS read
+    writeRegister(0x37, 0x20); // INT_PIN_CFG LATCH_INT_EN=1, INT_RD_CLEAR=0
 }
 
 void MPU6050Driver::clearInterrupt()
