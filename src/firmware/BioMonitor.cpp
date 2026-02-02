@@ -6,7 +6,7 @@
 
 // PPG sampling period - single source of truth for timing
 // 40ms = 25Hz sampling rate (MAX30102 default is 50 samples/sec)
-static constexpr uint32_t SAMPLE_PERIOD_MS = 40;
+static constexpr uint32_t SAMPLE_PERIOD_MS = 20;
 static constexpr float dt = SAMPLE_PERIOD_MS / 1000.0f;  // Convert to seconds for Kalman
 
 BioMonitor* globalMonitor = nullptr;
@@ -91,11 +91,13 @@ void BioMonitor::begin()
     }
 
     // Configure IMU motion detection interrupt
-    // threshold: ~40mg (20 * 2mg/LSB), duration: 10ms
-    imu.configureMotionInterrupt(20, 10);
+    // threshold: ~40mg (n * 2mg/LSB), duration: 10ms
+    imu.configureMotionInterrupt(10, 10);
 
     // Configure GPIO interrupt for MPU motion detection
     pinMode(MPU_INT_PIN, INPUT_PULLUP);
+    imu.clearInterrupt();
+    delay(10);
     attachInterrupt(digitalPinToInterrupt(MPU_INT_PIN), isrTrampoline, FALLING);
 
     // Function, Name, Stack Depth, *pvParameters, Priority, Handle
@@ -125,7 +127,6 @@ void BioMonitor::handleISR()
     // MPU6050 motion interrupt - set flag for main task to read acceleration
     // Don't do I2C in ISR (blocking); just signal that motion occurred
     motionDetected = true;
-    
     // Increase Kalman R during motion for measurement noise adaptation
     R_adaptive(0, 0) = R_HIGH;
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
@@ -134,26 +135,26 @@ void BioMonitor::handleISR()
 
 void BioMonitor::runLoop()
 {
-    // Use shared SAMPLE_PERIOD_MS for consistent timing with Kalman dt
     const TickType_t samplePeriod = pdMS_TO_TICKS(SAMPLE_PERIOD_MS);
     TickType_t lastWakeTime = xTaskGetTickCount();
 
     while (true)
     {
-        // Poll PPG sensor at consistent intervals
+        // Maintain the 50Hz heartbeat of the system
         vTaskDelayUntil(&lastWakeTime, samplePeriod);
         
-        // Get control input from IMU (only reads if motion interrupt fired)
         float accelMag = readAccelIfMotion();
-        
         float bpm = ppg.processSample();
+
+        // This advances the state by dt, keeping sync with real time.
+        predictKalman(accelMag);
+
+        // This corrects the predicted state.
         if (bpm > 0.0f)
         {
-            predictKalman(accelMag);
             updateKalman(bpm);
         }
-    }
-    
+    } 
     // TODO: Power management should be handled by a separate task/state machine
     // that coordinates sensor sleep, BLE sleep, and ESP32 light sleep modes
 }
@@ -168,6 +169,10 @@ float BioMonitor::readAccelIfMotion()
         // Read acceleration and compute magnitude
         MPU6050Driver::Data data = imu.read();
         lastAccelMag = imu.getAccelerationMagnitude(data);
+        if (lastAccelMag > currentAccelMagUI)
+        {
+            currentAccelMagUI = lastAccelMag;
+        }
         
         // Clear the hardware interrupt latch
         imu.clearInterrupt();
@@ -175,8 +180,8 @@ float BioMonitor::readAccelIfMotion()
         return lastAccelMag;
     }
     
-    // Decay lastAccelMag toward zero when no new motion detected, smooth transition back to rest state
-    lastAccelMag *= 0.9f;
+    // Decay accel magnitudes toward zero when no new motion detected, smooth transition back to rest state
+    lastAccelMag *= 0.999f;
     // Transition measurement noise back to rest state
     R_adaptive(0, 0) += ADAPT_RATE * (R_BASE - R_adaptive(0, 0));
     return lastAccelMag;
@@ -187,7 +192,9 @@ String BioMonitor::bleNotifyCallback(void* context)
     BioMonitor* monitor = static_cast<BioMonitor*>(context);
     float hr = monitor->getFilteredHR();
     float motion = monitor->getMotionScore();
-    return "HR=" + String(hr, 1) + ", Motion=" + String(motion, 2);
+    static char buffer[64];
+    snprintf(buffer, sizeof(buffer), "HR=%.1f, Motion=%.2f", hr, motion);    
+    return String(buffer);
 }
 
 void BioMonitor::predictKalman(float controlInput)
@@ -248,5 +255,6 @@ float BioMonitor::getFilteredHR() const
 
 float BioMonitor::getMotionScore() const
 {
+    
     return lastAccelMag;
 }

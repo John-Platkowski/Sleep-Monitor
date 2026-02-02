@@ -1,68 +1,58 @@
 #include "MPU6050Driver.h"
 // https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Register-Map1.pdf
+#include <math.h>
+
+// Helper to keep track of which chip we actually have
+static uint8_t _deviceId = 0x68; 
+
 bool MPU6050Driver::init()
 {
-    Wire.begin();
-    Wire.setClock(100000);
+    // Note: It's usually safer to call Wire.begin() in setup(), 
+    // but this works if you don't call it elsewhere.
+    Wire.begin(21, 22);
+    Wire.setClock(400000); // Bump to 400kHz for faster reads!
+    delay(100);
     
-    // Verify device is present by reading WHO_AM_I register (should return 0x68)
-    uint8_t whoAmI = readRegister(0x75);
-    if (whoAmI != 0x68) 
+    // Check ID
+    _deviceId = readRegister(0x75);
+    
+    // Accept 0x68 (MPU6050) or 0x70 (MPU6500/9250)
+    if (_deviceId != 0x68 && _deviceId != 0x70) 
     {
-        Serial.print("ERROR: MPU6050 WHO_AM_I mismatch. Expected 0x68, got 0x");
-        Serial.println(whoAmI, HEX);
+        Serial.print("ERROR: Unknown MPU ID: 0x");
+        Serial.println(_deviceId, HEX);
         return false;
     }
     
-    // Wake up MPU6050
-    Wire.beginTransmission(MPU_ADDR);
-    Wire.write(0x6B); // PWR_MGMT_1 register
-    Wire.write(0); // set to zero (wakes up the MPU-6050)
-    uint8_t error = Wire.endTransmission(true);
-    if (error != 0)
-    {
-        Serial.print("ERROR: MPU6050 I2C write failed with error: ");
-        Serial.println(error);
-        return false;
-    }
-    
-    Serial.println("MPU6050 initialized successfully");
+    // Wake up
+    writeRegister(0x6B, 0x00); 
+    // Clear any stuck interrupts from before the reboot
+    readRegister(0x3A); // Read INT_STATUS
+    Serial.println("MPU initialized successfully");
     return true;
 }
 
 void MPU6050Driver::configureMotionInterrupt(uint8_t threshold, uint8_t duration)
 {
-    // Reset device to known state
-    writeRegister(0x6B, 0x80); // PWR_MGMT_1 Device reset
-    delay(100); // Wait for reset to complete
-    writeRegister(0x6B, 0x00); // Wake up from reset
+    writeRegister(0x1C, 0x00); // ACCEL_CONFIG: +/- 2g
+    writeRegister(0x1B, 0x00); // GYRO_CONFIG: +/- 250dps
+    writeRegister(0x19, 0x09); // Sample Rate (100Hz is enough for sleep)
+    writeRegister(0x1A, 0x03); // DLPF ~40Hz bandwidth
     
-    // Configure sample rate 1kHz / (1 + 4) = 200Hz
-    writeRegister(0x19, 0x04); // SMPLRT_DIV
-    
-    // Configure DLPF for motion detection Accel BW ~20Hz
-    writeRegister(0x1A, 0x04); // CONFIG DLPF_CFG = 4
-    
-    // Configure accelerometer, +/- 2g range
-    writeRegister(0x1C, 0x00); // ACCEL_CONFIG AFS_SEL = 0
-    
-    // Enable all accelerometer axes
-    writeRegister(0x6C, 0x00); // PWR_MGMT_2 enable all axes
-    
-    // Set motion detection threshold threshold * 2mg per LSB
-    writeRegister(0x1F, threshold); // MOT_THR
-    
-    // Set motion detection duration
-    writeRegister(0x20, duration); // MOT_DUR
-    
-    // Configure motion detection decrement rate
-    writeRegister(0x69, 0x15); // MOT_DETECT_CTRL
-    
-    // Enable motion detection interrupt
-    writeRegister(0x38, 0x40); // INT_ENABLE MOT_EN = 1
-    
-    // Configure interrupt pin, Active LOW, push-pull, latched, clear on INT_STATUS read
-    writeRegister(0x37, 0x20); // INT_PIN_CFG LATCH_INT_EN=1, INT_RD_CLEAR=0
+    // Interrupt Pin Configuration (Active LOW, Push-Pull, Active LOW)
+    // 0xA0 = 1010_0000
+    writeRegister(0x37, 0xA0); 
+    Serial.println(String(_deviceId));
+        // Wake-on-Motion Threshold (1 LSB = 4mg)
+        writeRegister(0x1F, threshold); 
+        
+        // ACCEL_INTEL_CTRL
+        // 0xC0 = 1100_0000, Enable + Compare Mode
+        writeRegister(0x69, 0xC0); 
+
+        // INT_ENABLE 
+        // Bit 6 is Wake on Motion
+        writeRegister(0x38, 0x40); 
 }
 
 void MPU6050Driver::clearInterrupt()
@@ -128,7 +118,13 @@ MPU6050Driver::Data MPU6050Driver::read()
 
 float MPU6050Driver::getAccelerationMagnitude(Data& data)
 {
-    float total_force = sqrt(data.ax * data.ax + data.ay * data.ay + data.az * data.az);
+    const float SCALE = 16384.0f; 
+    
+    float ax_g = data.ax / SCALE;
+    float ay_g = data.ay / SCALE;
+    float az_g = data.az / SCALE;
+
+    float total_force = sqrt(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
     return abs(total_force - 1.0f);
 }
 

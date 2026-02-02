@@ -49,7 +49,8 @@ private:
 
     // Motion detection via IMU interrupt (no polling)
     volatile bool motionDetected;
-    float lastAccelMag;
+    float lastAccelMag; // Kalman
+    float currentAccelMagUI; // UI
     float readAccelIfMotion();
 
     void predictKalman(float controlInput);

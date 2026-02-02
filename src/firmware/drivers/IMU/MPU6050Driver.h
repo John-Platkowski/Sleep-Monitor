@@ -1,6 +1,5 @@
 #pragma once
 #include <Wire.h>
-#include "MPU6050Driver.h"
 #include <Arduino.h>
 
 class MPU6050Driver
