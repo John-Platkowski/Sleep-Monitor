@@ -38,14 +38,19 @@ private:
     Matrix<float, 2, 1> x;      // State estimate
     Matrix<float, 2, 2> P;      // Estimate covariance
     Matrix<float, 2, 2> Q_adaptive;  // Adaptive process noise (runtime)
-    Matrix<float, 1, 1> R_adaptive; // Adaptive measurement noise (runtime)
+    
+    // Scratch matrices
+    Matrix<float, 2, 2> Q_scratch;  // Motion-scaled Q for predict step
+    Matrix<float, 2, 1> K;    // Kalman gain for update step
+    Matrix<float, 1, 1> S;    // Innovation covariance
+    Matrix<float, 1, 1> y;    // Innovation (measurement residual)
     
     // System model (constant, defined in cpp)
     static const Matrix<float, 2, 2> F;  // State transition
-    static const Matrix<float, 2, 1> B;  // Control matrix (maps accel to state)
     static const Matrix<float, 1, 2> H;  // Measurement matrix
     static const Matrix<float, 2, 2> Q;  // Base process noise covariance
     static const Matrix<float, 1, 1> R;  // Base measurement noise covariance
+    static const Matrix<float, 2, 2> I;  // Identity matrix
 
     // Motion detection via IMU interrupt (no polling)
     volatile bool motionDetected;

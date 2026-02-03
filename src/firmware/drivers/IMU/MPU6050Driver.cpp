@@ -1,5 +1,6 @@
 #include "MPU6050Driver.h"
 // https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Register-Map1.pdf
+// Weirdly enough, the MPU6050 we recieved does not conform to the 6050 datasheet; It matches the 6500 datasheet instead.
 #include <math.h>
 
 // Helper to keep track of which chip we actually have

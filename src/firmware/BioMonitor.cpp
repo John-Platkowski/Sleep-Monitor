@@ -12,22 +12,18 @@ static constexpr float dt = SAMPLE_PERIOD_MS / 1000.0f;  // Convert to seconds f
 BioMonitor* globalMonitor = nullptr;
 
 // State transition matrix F: predicts next state from current
-// [HR_new]     [1  dt] [HR]        HR_new = HR + dt * velocity
-// [vel_new]  = [0   1] [vel]       vel_new = vel (constant velocity model)
+// [HR_new]     [1  dt  ] [HR]        HR_new = HR + dt * velocity
+// [vel_new]  = [0  decay] [vel]      vel_new = decay * vel (mean-reverting velocity)
+// Velocity decay prevents accumulation and pulls toward rest state
+static constexpr float VELOCITY_DECAY = 0.95f;  // TODO: tune empirically (0.9-0.98 range)
 const Matrix<float, 2, 2> BioMonitor::F = {
     1.0f, dt,
-    0.0f, 1.0f
+    0.0f, VELOCITY_DECAY
 };
 
-// Control matrix B: maps acceleration to expected state change
-// Acceleration affects expected HR velocity, not HR directly
-// [HR_new]     [0  ]           HR not directly affected by motion
-// [vel_new] += [k  ] * accel   velocity increases with motion (anticipate HR rise)
-static constexpr float ACCEL_TO_VEL_GAIN = 0.5f;  // TODO: tune empirically
-const Matrix<float, 2, 1> BioMonitor::B = {
-    0.0f,
-    ACCEL_TO_VEL_GAIN
-};
+// Maximum allowable HR velocity (BPM per second)
+// Physiologically, HR rarely changes faster than ~5 BPM/s even during exercise
+static constexpr float MAX_HR_VELOCITY = 5.0f;
 
 // Measurement matrix H: maps state to measurement space
 // We only measure HR directly: z = [1 0] * [HR, vel]^T
@@ -43,16 +39,21 @@ const Matrix<float, 2, 2> BioMonitor::Q = { // TODO: tune empirically
 };
 
 // Adaptive Q parameters
-static constexpr float Q_VEL_BASE = 0.01f; // TODO: tune empirically
-static constexpr float Q_VEL_HIGH = 0.1f; // TODO: tune empirically
-static constexpr float INNOVATION_THRESH = 5.0f; // TODO: tune empirically
+static constexpr float Q_VEL_BASE = 0.01f;  // TODO: tune empirically
+static constexpr float Q_VEL_HIGH = 0.1f;   // TODO: tune empirically
+static constexpr float INNOVATION_THRESH = 5.0f;  // TODO: tune empirically
 static constexpr float ADAPT_RATE = 0.1f;
+
+
+static constexpr float MOTION_Q_GAIN = 5.0f;  // TODO: tune empirically
 
 // Measurement noise covariance R: uncertainty in HR sensor readings
 // Higher values = less trust in measurements, smoother output
-static constexpr float R_BASE = 4.0f; // TODO: tune empirically
-static constexpr float R_HIGH = 16.0f; // TODO: tune empirically
+static constexpr float R_BASE = 4.0f;  // TODO: tune empirically
 const Matrix<float, 1, 1> BioMonitor::R = { R_BASE };
+
+// Identity matrix
+const Matrix<float, 2, 2> BioMonitor::I = Matrix<float, 2, 2>::identity();
 
 BioMonitor::BioMonitor() : motionDetected(false), lastAccelMag(0.0f)
 {
@@ -73,9 +74,6 @@ BioMonitor::BioMonitor() : motionDetected(false), lastAccelMag(0.0f)
     Q_adaptive(0, 1) = 0.0f;
     Q_adaptive(1, 0) = 0.0f;
     Q_adaptive(1, 1) = Q_VEL_BASE;
-
-    // Initialize adaptive R to base values
-    R_adaptive(0, 0) = R(0, 0);
 }
 
 void BioMonitor::begin()
@@ -124,11 +122,7 @@ void BioMonitor::isrTrampoline()
 
 void BioMonitor::handleISR()
 {
-    // MPU6050 motion interrupt - set flag for main task to read acceleration
-    // Don't do I2C in ISR (blocking); just signal that motion occurred
     motionDetected = true;
-    // Increase Kalman R during motion for measurement noise adaptation
-    R_adaptive(0, 0) = R_HIGH;
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
@@ -180,10 +174,9 @@ float BioMonitor::readAccelIfMotion()
         return lastAccelMag;
     }
     
-    // Decay accel magnitudes toward zero when no new motion detected, smooth transition back to rest state
-    lastAccelMag *= 0.999f;
-    // Transition measurement noise back to rest state
-    R_adaptive(0, 0) += ADAPT_RATE * (R_BASE - R_adaptive(0, 0));
+    // Decay accel magnitude toward zero when no new motion detected
+    // Smooth transition back to rest state for Q scaling in predictKalman()
+    lastAccelMag *= 0.95f;
     return lastAccelMag;
 }
 
@@ -197,42 +190,48 @@ String BioMonitor::bleNotifyCallback(void* context)
     return String(buffer);
 }
 
-void BioMonitor::predictKalman(float controlInput)
+void BioMonitor::predictKalman(float accelMag)
 {
-    // Predict state with control input: x = F * x + B * u
-    // Control input (acceleration magnitude) anticipates HR velocity changes
-    Matrix<float, 1, 1> u;
-    u(0, 0) = controlInput;
-    x = F * x + B * u;
+    // Predict state: x = F * x
+    x = F * x;
     
-    // Predict covariance: P = F * P * F^T + Q_adaptive
-    // Using adaptive Q allows faster velocity changes during high HR variability
-    P = F * P * F.transpose() + Q_adaptive;
+    // Clamp velocity to physiologically reasonable range
+    if (x(1, 0) > MAX_HR_VELOCITY) x(1, 0) = MAX_HR_VELOCITY;
+    if (x(1, 0) < -MAX_HR_VELOCITY) x(1, 0) = -MAX_HR_VELOCITY;
+    
+    // Scale process noise by motion magnitude
+    float motionFactor = 1.0f + accelMag * MOTION_Q_GAIN;
+    Q_scratch(0, 0) = Q_adaptive(0, 0) * motionFactor;
+    Q_scratch(0, 1) = 0.0f;
+    Q_scratch(1, 0) = 0.0f;
+    Q_scratch(1, 1) = Q_adaptive(1, 1) * motionFactor;
+    
+    // Predict covariance: P = F * P * F^T + Q_scratch
+    P = F * P * F.transpose() + Q_scratch;
 }
 
 void BioMonitor::updateKalman(float measurement)
 {
-    // Wrap measurement in matrix form
-    Matrix<float, 1, 1> z;
-    z(0, 0) = measurement;
-    
     // Innovation (measurement residual): y = z - H * x
-    Matrix<float, 1, 1> y = z - H * x;
+    y(0, 0) = measurement - (H * x)(0, 0);
     
     // Adapt process noise based on innovation magnitude
     adaptProcessNoise(y(0, 0));
     
     // Innovation covariance: S = H * P * H^T + R
-    Matrix<float, 1, 1> S = H * P * H.transpose() + R_adaptive;
+    S = H * P * H.transpose() + R;
     
     // Kalman gain: K = P * H^T * S^(-1)
-    Matrix<float, 2, 1> K = P * H.transpose() * S.inverse();
+    K = P * H.transpose() * S.inverse();
     
     // Update state: x = x + K * y
     x = x + K * y;
     
+    // Clamp velocity after measurement update as well
+    if (x(1, 0) > MAX_HR_VELOCITY) x(1, 0) = MAX_HR_VELOCITY;
+    if (x(1, 0) < -MAX_HR_VELOCITY) x(1, 0) = -MAX_HR_VELOCITY;
+    
     // Update covariance: P = (I - K * H) * P
-    Matrix<float, 2, 2> I = Matrix<float, 2, 2>::identity();
     P = (I - K * H) * P;
 }
 
