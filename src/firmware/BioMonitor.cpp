@@ -15,7 +15,7 @@ BioMonitor* globalMonitor = nullptr;
 // [HR_new]     [1  dt  ] [HR]        HR_new = HR + dt * velocity
 // [vel_new]  = [0  decay] [vel]      vel_new = decay * vel (mean-reverting velocity)
 // Velocity decay prevents accumulation and pulls toward rest state
-static constexpr float VELOCITY_DECAY = 0.95f;  // TODO: tune empirically (0.9-0.98 range)
+static constexpr float VELOCITY_DECAY = 0.96f; // Approx 0.9-0.98
 const Matrix<float, 2, 2> BioMonitor::F = {
     1.0f, dt,
     0.0f, VELOCITY_DECAY
@@ -39,17 +39,17 @@ const Matrix<float, 2, 2> BioMonitor::Q = { // TODO: tune empirically
 };
 
 // Adaptive Q parameters
-static constexpr float Q_VEL_BASE = 0.01f;  // TODO: tune empirically
-static constexpr float Q_VEL_HIGH = 0.1f;   // TODO: tune empirically
-static constexpr float INNOVATION_THRESH = 5.0f;  // TODO: tune empirically
+static constexpr float Q_VEL_BASE = 0.01f;
+static constexpr float Q_VEL_HIGH = 0.1f;
+static constexpr float INNOVATION_THRESH = 5.0f; // TODO: tune empirically
 static constexpr float ADAPT_RATE = 0.1f;
 
 
-static constexpr float MOTION_Q_GAIN = 5.0f;  // TODO: tune empirically
+static constexpr float MOTION_Q_GAIN = 4.2f;
 
 // Measurement noise covariance R: uncertainty in HR sensor readings
 // Higher values = less trust in measurements, smoother output
-static constexpr float R_BASE = 4.0f;  // TODO: tune empirically
+static constexpr float R_BASE = 3.8f;
 const Matrix<float, 1, 1> BioMonitor::R = { R_BASE };
 
 // Identity matrix
@@ -155,7 +155,7 @@ void BioMonitor::runLoop()
 
 float BioMonitor::readAccelIfMotion()
 {
-    // Only read IMU when motion interrupt has fired (no polling)
+    // Only read IMU when motion interrupt has fired
     if (motionDetected)
     {
         motionDetected = false;
@@ -249,11 +249,10 @@ void BioMonitor::adaptProcessNoise(float innovation)
 
 float BioMonitor::getFilteredHR() const
 {
-    return x(0, 0);  // Return current HR estimate
+    return x(0, 0);  // Return current HR true state
 }
 
 float BioMonitor::getMotionScore() const
 {
-    
     return lastAccelMag;
 }
