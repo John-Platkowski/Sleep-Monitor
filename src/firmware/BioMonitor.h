@@ -45,14 +45,14 @@ private:
     Matrix<float, 1, 1> S;    // Innovation covariance
     Matrix<float, 1, 1> y;    // Innovation (measurement residual)
     
-    // System model (constant, defined in cpp)
+    // System model
     static const Matrix<float, 2, 2> F;  // State transition
     static const Matrix<float, 1, 2> H;  // Measurement matrix
     static const Matrix<float, 2, 2> Q;  // Base process noise covariance
     static const Matrix<float, 1, 1> R;  // Base measurement noise covariance
     static const Matrix<float, 2, 2> I;  // Identity matrix
 
-    // Motion detection via IMU interrupt (no polling)
+    // Motion detection via IMU interrupt
     volatile bool motionDetected;
     float lastAccelMag; // Kalman
     float currentAccelMagUI; // UI
@@ -62,7 +62,7 @@ private:
     void updateKalman(float measurement);
     void adaptProcessNoise(float innovation);
 
-    // BLE notification callback (static for function pointer compatibility)
+    // BLE notification callback
     static String bleNotifyCallback(void* context);
 
     MAX30102Driver ppg;
