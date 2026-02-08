@@ -23,6 +23,7 @@ public:
     // Public accessors for BLE callback
     float getFilteredHR() const;
     float getMotionScore() const;
+    float getEpochTemperatureC();
 
 private:
     TaskHandle_t taskHandle;

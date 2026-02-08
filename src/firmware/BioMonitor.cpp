@@ -139,6 +139,7 @@ void BioMonitor::runLoop()
         
         float accelMag = readAccelIfMotion();
         float bpm = ppg.processSample();
+        imu.addTemperatureSample(millis());
 
         // This advances the state by dt, keeping sync with real time.
         predictKalman(accelMag);
@@ -185,8 +186,9 @@ String BioMonitor::bleNotifyCallback(void* context)
     BioMonitor* monitor = static_cast<BioMonitor*>(context);
     float hr = monitor->getFilteredHR();
     float motion = monitor->getMotionScore();
-    static char buffer[64];
-    snprintf(buffer, sizeof(buffer), "HR=%.1f, Motion=%.2f", hr, motion);    
+    float tempC = monitor->getEpochTemperatureC();
+    static char buffer[80];
+    snprintf(buffer, sizeof(buffer), "HR=%.1f, Motion=%.2f, Temp=%.1f", hr, motion, tempC);
     return String(buffer);
 }
 
@@ -255,4 +257,9 @@ float BioMonitor::getFilteredHR() const
 float BioMonitor::getMotionScore() const
 {
     return lastAccelMag;
+}
+
+float BioMonitor::getEpochTemperatureC()
+{
+    return imu.getEpochTemperatureC(millis(), BLE_NOTIFY_PERIOD_MS);
 }

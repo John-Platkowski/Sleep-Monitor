@@ -12,6 +12,7 @@ DEVICE_ADDRESS = "EC:E3:34:1C:3B:5E"
 # Data storage, deques to limit the sample to 100 values
 data_hr = deque(maxlen=100)
 data_motion = deque(maxlen=100)
+temp_c = None
 
 # Setup plot with two y-axes (heart rate on left, motion on right)
 plt.ion()
@@ -36,12 +37,14 @@ fig.suptitle("Sleep Monitor Dashboard")
 
 # Handle BLE notifications and update plot
 def notification_handler(sender, data):
+    global temp_c
     line_in = data.decode('utf-8').strip()
-    match = re.match(r"HR=([\d\.]+), Motion=([\d\.]+)", line_in)
+    match = re.match(r"HR=([\d\.]+), Motion=([\d\.]+), Temp=([\d\.]+)", line_in)
     
     if match:
         hr_val = float(match.group(1))
         motion_val = float(match.group(2))
+        temp_c = float(match.group(3))
         
         data_hr.append(hr_val)
         data_motion.append(motion_val)

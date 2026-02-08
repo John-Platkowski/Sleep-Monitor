@@ -8,10 +8,8 @@ static uint8_t _deviceId = 0x68;
 
 bool MPU6050Driver::init()
 {
-    // Note: It's usually safer to call Wire.begin() in setup(), 
-    // but this works if you don't call it elsewhere.
     Wire.begin(21, 22);
-    Wire.setClock(400000); // Bump to 400kHz for faster reads!
+    Wire.setClock(400000);
     delay(100);
     
     // Check ID
@@ -79,6 +77,67 @@ uint8_t MPU6050Driver::readRegister(uint8_t reg)
     return Wire.read();
 }
 
+int16_t MPU6050Driver::readTempRaw()
+{
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x41);  // TEMP_OUT_H
+    Wire.endTransmission(false);
+    Wire.requestFrom(MPU_ADDR, (uint8_t)2, (uint8_t)true);
+    uint8_t hi = Wire.read();
+    uint8_t lo = Wire.read();
+    return (int16_t)(hi << 8 | lo);
+}
+
+void MPU6050Driver::addTemperatureSample(uint32_t nowMs)
+{
+    if (tempEpochCount > 0 && (nowMs - tempLastSampleMs) < TEMP_SAMPLE_INTERVAL_MS)
+    {
+        return;
+    }
+    if (tempEpochCount == 0)
+    {
+        tempEpochStartMs = nowMs;
+    }
+    int16_t raw = readTempRaw();
+    float c = (raw / TEMP_SCALE) + TEMP_OFFSET_C;
+    tempEpochSum += c;
+    tempEpochCount++;
+    tempLastSampleMs = nowMs;
+}
+
+float MPU6050Driver::getEpochTemperatureC(uint32_t nowMs, uint32_t epochDurationMs)
+{
+    if (tempEpochCount == 0)
+    {
+        return tempHasReported ? tempLastReportedC : 0.0f;
+    }
+
+    uint32_t elapsed = nowMs - tempEpochStartMs;
+    if (elapsed < epochDurationMs)
+    {
+        return tempHasReported ? tempLastReportedC : (tempEpochSum / tempEpochCount);
+    }
+    float mean = tempEpochSum / (float)tempEpochCount;
+    if (tempHasReported)
+    {
+        float delta = mean - tempLastReportedC;
+        if (delta > TEMP_MAX_DELTA_C)
+        {
+            mean = tempLastReportedC + TEMP_MAX_DELTA_C;
+        } else if (delta < -TEMP_MAX_DELTA_C) {
+            mean = tempLastReportedC - TEMP_MAX_DELTA_C;
+        }
+    } else {
+        tempHasReported = true;
+    }
+
+    tempLastReportedC = mean;
+    tempEpochSum = 0.0f;
+    tempEpochCount = 0;
+    tempEpochStartMs = nowMs;
+    return mean;
+}
+
 MPU6050Driver::Data MPU6050Driver::read()
 {
     Data data = {0, 0, 0, 0, 0, 0};
@@ -110,7 +169,7 @@ MPU6050Driver::Data MPU6050Driver::read()
     data.ax = (int16_t)(buffer[0] << 8 | buffer[1]);   // acceleration x
     data.ay = (int16_t)(buffer[2] << 8 | buffer[3]);   // acceleration y
     data.az = (int16_t)(buffer[4] << 8 | buffer[5]);   // acceleration z
-    // buffer[6], buffer[7] = temperature, discarded
+    // buffer[6], buffer[7] = TEMP_OUT
     data.gx = (int16_t)(buffer[8] << 8 | buffer[9]);   // gyro x
     data.gy = (int16_t)(buffer[10] << 8 | buffer[11]); // gyro y
     data.gz = (int16_t)(buffer[12] << 8 | buffer[13]); // gyro z
