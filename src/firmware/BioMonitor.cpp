@@ -31,17 +31,17 @@ const Matrix<float, 1, 2> BioMonitor::H = {
     1.0f, 0.0f
 };
 
-// Base process noise covariance Q: uncertainty in our motion model
+// Base process noise covariance Q: uncertainty in the motion model
 // Higher values = less trust in prediction, more responsive to measurements
-const Matrix<float, 2, 2> BioMonitor::Q = { // TODO: tune empirically
-    0.01f, 0.0f,
-    0.0f,  0.01f
+const Matrix<float, 2, 2> BioMonitor::Q = {
+    0.014f, 0.0f,
+    0.0f,  0.014f
 };
 
 // Adaptive Q parameters
 static constexpr float Q_VEL_BASE = 0.01f;
 static constexpr float Q_VEL_HIGH = 0.1f;
-static constexpr float INNOVATION_THRESH = 5.0f; // TODO: tune empirically
+static constexpr float INNOVATION_THRESH = 6.0f;
 static constexpr float ADAPT_RATE = 0.1f;
 
 
@@ -63,7 +63,7 @@ BioMonitor::BioMonitor() : motionDetected(false), lastAccelMag(0.0f)
     x(0, 0) = 70.0f;  // Initial HR estimate
     x(1, 0) = 0.0f;   // Initial velocity (no change)
     
-    // Initialize covariance with high uncertainty (we don't know the true state yet)
+    // Initialize covariance with high uncertainty; true state is not known
     P(0, 0) = 100.0f;  // HR variance
     P(0, 1) = 0.0f;
     P(1, 0) = 0.0f;
