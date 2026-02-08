@@ -12,50 +12,52 @@ DEVICE_ADDRESS = "EC:E3:34:1C:3B:5E"
 # Data storage, deques to limit the sample to 100 values
 data_hr = deque(maxlen=100)
 data_motion = deque(maxlen=100)
-temp_c = None
+data_temp = deque(maxlen=100)
 
-# Setup plot with two y-axes (heart rate on left, motion on right)
+# Three separate graphs
 plt.ion()
-fig, ax = plt.subplots()
-ax2 = ax.twinx()
+fig, (ax_hr, ax_motion, ax_temp) = plt.subplots(3, 1, sharex=True, figsize=(8, 8))
 
-line_hr, = ax.plot([], [], 'r-', linewidth=2, label="Heart Rate")
-line_motion, = ax2.plot([], [], 'm-', alpha=0.7, label="Motion")
+line_hr, = ax_hr.plot([], [], 'r-', linewidth=2)
+ax_hr.set_ylabel("Heart Rate (BPM)")
+ax_hr.set_title("Heart Rate")
+ax_hr.grid(True, alpha=0.3)
 
-ax.set_xlabel("Sample")
-ax.set_ylabel("Heart Rate (BPM)", color='r')
-ax.tick_params(axis='y', labelcolor='r')
-ax2.set_ylabel("Motion Score", color='m')
-ax2.tick_params(axis='y', labelcolor='m')
+line_motion, = ax_motion.plot([], [], 'm-', linewidth=2)
+ax_motion.set_ylabel("Motion Score")
+ax_motion.set_title("Motion")
+ax_motion.grid(True, alpha=0.3)
 
-# Combine legends from both axes
-lines = [line_hr, line_motion]
-labels = [l.get_label() for l in lines]
-ax.legend(lines, labels, loc='upper left')
+line_temp, = ax_temp.plot([], [], 'b-', linewidth=2)
+ax_temp.set_ylabel("Temp (C)")
+ax_temp.set_xlabel("Sample")
+ax_temp.set_title("Temperature")
+ax_temp.grid(True, alpha=0.3)
 
 fig.suptitle("Sleep Monitor Dashboard")
+fig.tight_layout()
 
 # Handle BLE notifications and update plot
 def notification_handler(sender, data):
-    global temp_c
     line_in = data.decode('utf-8').strip()
     match = re.match(r"HR=([\d\.]+), Motion=([\d\.]+), Temp=([\d\.]+)", line_in)
     
     if match:
         hr_val = float(match.group(1))
         motion_val = float(match.group(2))
-        temp_c = float(match.group(3))
+        temp_val = float(match.group(3))
         
         data_hr.append(hr_val)
         data_motion.append(motion_val)
+        data_temp.append(temp_val)
         
         line_hr.set_data(range(len(data_hr)), list(data_hr))
         line_motion.set_data(range(len(data_motion)), list(data_motion))
+        line_temp.set_data(range(len(data_temp)), list(data_temp))
         
-        ax.relim()
-        ax.autoscale_view()
-        ax2.relim()
-        ax2.autoscale_view()
+        for a in (ax_hr, ax_motion, ax_temp):
+            a.relim()
+            a.autoscale_view()
         plt.draw()
         plt.pause(0.01)
     else:
