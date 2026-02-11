@@ -35,7 +35,7 @@ void MPU6050Driver::configureMotionInterrupt(uint8_t threshold, uint8_t duration
 {
     writeRegister(0x1C, 0x00); // ACCEL_CONFIG: +/- 2g
     writeRegister(0x1B, 0x00); // GYRO_CONFIG: +/- 250dps
-    writeRegister(0x19, 0x09); // Sample Rate (100Hz is enough for sleep)
+    writeRegister(0x19, 0x09); // Sample Rate 100Hz
     writeRegister(0x1A, 0x03); // DLPF ~40Hz bandwidth
     
     // Interrupt Pin Configuration (Active LOW, Push-Pull, Active LOW)
