@@ -5,8 +5,7 @@
 
 #include "BioMonitor.h"
 
-// Global rather than a local in setup(), so it outlives setup() and lands in static storage instead
-// of consuming the Arduino task's stack.
+// Global, so it outlives setup() and lands in static storage rather than on the Arduino task's stack.
 BioMonitor monitor;
 
 void setup()
@@ -18,7 +17,6 @@ void setup()
 
 void loop()
 {
-    // The sampling task and the BLE timer carry the workload. Sleeping keeps this task off the CPU
-    // rather than spinning.
+    // The sampling task and the BLE timer carry the workload. Sleeping keeps this task off the CPU.
     delay(1000);
 }

@@ -9,12 +9,8 @@
 
 // A dense matrix whose shape is part of its type.
 //
-// Written rather than pulled from a library because the usual C++ linear algebra
-// packages assume a heap and a hosted toolchain. Sizing by template parameter
-// keeps every matrix in this project a plain member with no dynamic allocation;
-// there is nothing to fragment and no allocation that can fail mid-update.
-//
-// Matrix shape errors are caught at compile time.
+// Sizing by template parameter keeps every matrix a plain member with no dynamic allocation, and
+// matrix shape errors are caught at compile time.
 //
 // T is the element type, R the row count, and C the column count.
 template <typename T, int R, int C>
@@ -169,10 +165,8 @@ public:
 
     // Returns the inverse, or a zero matrix if this one is singular.
     //
-    // Reporting singularity as zero rather than throwing keeps the filter running on a device with
-    // no exception handling and no operator present. A zero inverse yields a zero Kalman gain, so the
-    // update contributes nothing and the estimate coasts on prediction until the covariance recovers.
-    // The cost is that callers cannot distinguish a singular input from a genuine zero result.
+    // A singular input is reported as a zero matrix, not an exception, so callers cannot distinguish
+    // it from a genuine zero result.
     //
     // Three overloads select on size: 1x1 and 2x2 use closed forms, and larger sizes fall back to the
     // adjugate method, which grows factorially and is unused by this project.

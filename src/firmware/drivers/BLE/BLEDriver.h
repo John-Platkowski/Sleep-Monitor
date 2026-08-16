@@ -40,9 +40,17 @@ public:
 
     // Stops advertising and notifications, and resumes them.
     //
-    // Neither is currently called anywhere; see the power management TODO in BioMonitor::runLoop().
+    // Not used by the power manager, which keeps the device connectable for as long as it runs at all
+    // and calls shutdown() when it stops.
     void sleep();
     void wake();
+
+    // Releases the BLE stack outright: notification timer, advertising, the GATT server, and the
+    // controller with them.
+    //
+    // Terminal, where sleep() is not: the server, service and characteristic go with the stack, so
+    // only a reset can rebuild them. Meant for the moment before deep sleep.
+    void shutdown();
 
     // Pushes one value to any subscribed client immediately.
     void notify(const String& data);

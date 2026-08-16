@@ -2,7 +2,6 @@
 
 bool BLEDriver::init()
 {
-    // Serial is already started in setup(); starting it again here reinitialized the port mid-boot.
     // Create the BLE Device
     BLEDevice::init("MyESP32");
 
@@ -54,6 +53,25 @@ void BLEDriver::wake()
     pAdvertising->setScanResponse(true);
     BLEDevice::startAdvertising();
     Serial.println("BLE advertising started...");
+}
+
+void BLEDriver::shutdown()
+{
+    // Must stop before the stack it notifies through goes away.
+    stopPeriodicNotify();
+
+    // xTimerDelete only queues the deletion and says nothing about a callback already running. A
+    // callback holds pCharacteristic for a few milliseconds at most; this yields long enough for an
+    // in-flight one to finish before the deinit below.
+    delay(100);
+
+    BLEDevice::deinit(false);
+
+    pServer = nullptr;
+    pService = nullptr;
+    pCharacteristic = nullptr;
+
+    Serial.println("BLE stack released");
 }
 
 void BLEDriver::notify(const String& data)

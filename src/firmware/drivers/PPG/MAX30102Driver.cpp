@@ -7,34 +7,40 @@ bool MAX30102Driver::init()
         return false;
     }
     
-    // Library defaults are wrong for this build in two ways: ledMode 3 reserves a green FIFO slot the
-    // MAX30102 has no LED for, and 400sps with 4x averaging emits 100Hz into a task that consumes at
-    // 50Hz, so half of every read is fetched over I2C and dropped. 200sps / 4 lands exactly on the
-    // 50Hz sample loop.
+    // ledMode 2 is red + infrared, the only two the MAX30102 carries. 200sps with 4x averaging emits
+    // 50Hz, which lands exactly on the sample loop.
     // (powerLevel, sampleAverage, ledMode, sampleRate, pulseWidth, adcRange)
     sensor.setup(0x1F, 4, 2, 200, 411, 4096);
 
-    // setup() applies powerLevel to every channel including green. Harmless on a MAX30102, which has
-    // no green die and no green slot in 2-LED mode, but kept explicit in case the part is a MAX30105.
+    // setup() applies powerLevel to every channel including green, which a MAX30102 has neither a die
+    // nor a 2-LED FIFO slot for.
     sensor.setPulseAmplitudeGreen(0);
 
     lastBeatTick = xTaskGetTickCount();
     firstBeat = true;
-    
+    lastFingerPresent = false;
+
     return true;
 }
 
 void MAX30102Driver::sleep()
 {
     sensor.shutDown();
+    lastFingerPresent = false;
 }
 
 void MAX30102Driver::wake()
 {
     sensor.wakeUp();
+
+    // Shutting down leaves the FIFO and its pointers alone; resetting them leaves the next read
+    // waiting on data taken after the wake.
+    sensor.clearFIFO();
+
     // Reset beat detection state after wake
     lastBeatTick = xTaskGetTickCount();
     firstBeat = true;
+    lastFingerPresent = false;
 }
 
 uint32_t MAX30102Driver::readIR()
@@ -45,10 +51,10 @@ uint32_t MAX30102Driver::readIR()
 float MAX30102Driver::processSample()
 {
     uint32_t irValue = sensor.getIR();
+    lastFingerPresent = (irValue >= FINGER_THRESHOLD);
 
-    // Arming firstBeat here means removing and replacing a finger cannot produce a bogus interval
-    // spanning the gap.
-    if (irValue < FINGER_THRESHOLD)
+    // Arm firstBeat, so the next beat after a finger returns only records a reference point.
+    if (!lastFingerPresent)
     {
         firstBeat = true;
         return -1.0f;
@@ -73,7 +79,7 @@ float MAX30102Driver::processSample()
 
         float deltaMs = (float)deltaTicks * (1000.0f / configTICK_RATE_HZ);
 
-        // Guard the division below; two beats in the same tick would divide by roughly zero.
+        // Guard the division below.
         if (deltaMs < 1.0f)
         {
             return -1.0f;
@@ -82,8 +88,7 @@ float MAX30102Driver::processSample()
         float bpm = 60000.0f / deltaMs;
 
         // An interval outside human range means the detector miscounted, either splitting one beat in
-        // two or missing one entirely. Dropping it beats feeding the filter a value it would partly
-        // believe.
+        // two or missing one entirely.
         if (bpm < MIN_BPM || bpm > MAX_BPM)
         {
             return -1.0f;

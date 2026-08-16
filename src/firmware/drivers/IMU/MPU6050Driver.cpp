@@ -9,8 +9,6 @@ bool MPU6050Driver::init()
     Wire.setClock(400000);
     delay(100);
 
-    // A 6050 would answer here and read plausibly, so this has to be an equality test rather than a
-    // presence test.
     uint8_t whoAmI = readRegister(0x75);
     if (whoAmI != MPU_WHOAMI_6500)
     {
@@ -19,25 +17,30 @@ bool MPU6050Driver::init()
         return false;
     }
     
-    // PWR_MGMT_1: clear the sleep bit set at power-on.
+    // PWR_MGMT_1: clear the sleep bit set at power-on, along with the cycle and temperature-disable
+    // bits enterLowPowerMotion() sets. PWR_MGMT_2: all six axes out of standby, which the same call
+    // puts the gyroscope into. Neither is necessarily at its power-on default.
     writeRegister(0x6B, 0x00);
+    writeRegister(0x6C, 0x00);
 
-    // A latched interrupt can survive a reboot and would leave the INT pin asserted forever, so drain
-    // INT_STATUS before anyone attaches a handler.
+    // Drain INT_STATUS before anyone attaches a handler; a latched interrupt survives a reboot.
     readRegister(0x3A);
     Serial.println("MPU initialized successfully");
     return true;
 }
 
 // The MPU6500 wake-on-motion block has no duration register, so motion is reported as soon as one
-// sample clears the threshold. The 6050's MOT_DUR (0x20) has no equivalent here, which is why this
-// takes a threshold only.
+// sample clears the threshold.
 void MPU6050Driver::configureMotionInterrupt(uint8_t threshold)
 {
     writeRegister(0x1C, 0x00); // ACCEL_CONFIG: +/- 2g
     writeRegister(0x1B, 0x00); // GYRO_CONFIG: +/- 250dps
     writeRegister(0x19, 0x09); // Sample Rate 100Hz
     writeRegister(0x1A, 0x03); // DLPF ~40Hz bandwidth
+
+    // ACCEL_CONFIG2: 460Hz bandwidth, the default. enterLowPowerMotion() narrows it to 184Hz and that
+    // survives into the next boot.
+    writeRegister(0x1D, 0x00);
 
     // Interrupt Pin Configuration (Active LOW, Push-Pull, Latch until read)
     // 0xA0 = 1010_0000
@@ -167,8 +170,7 @@ float MPU6050Driver::getEpochTemperatureC(uint32_t nowMs, uint32_t epochDuration
 MPU6050Driver::Data MPU6050Driver::read()
 {
     // Accelerometer, temperature, and gyroscope occupy 14 consecutive registers from 0x3B, so one
-    // burst read gets all six axes from a single instant. Separate register reads could straddle a
-    // sensor update and mix two samples together.
+    // burst read gets all six axes from a single instant.
     Data data = {0, 0, 0, 0, 0, 0};
 
     Wire.beginTransmission(MPU_ADDR);
@@ -230,4 +232,23 @@ void MPU6050Driver::sleep()
 void MPU6050Driver::wake()
 {
     writeRegister(0x6B, 0b00000000); // PWR_MGMT_1 register, Wake mode
+}
+
+void MPU6050Driver::enterLowPowerMotion(uint8_t threshold, uint8_t odrCode)
+{
+    // ACCEL_CONFIG2: 184Hz bandwidth. Motion is detected by differencing consecutive samples, so the
+    // threshold sees their noise as well as their signal.
+    writeRegister(0x1D, 0x01);
+
+    writeRegister(0x1F, threshold); // WOM_THR, in 4mg counts.
+    writeRegister(0x1E, odrCode); // LP_ACCEL_ODR: how often the cycle counter takes a sample.
+
+    writeRegister(0x69, 0xC0); // MOT_DETECT_CTRL: intelligence enabled, compare against previous.
+    writeRegister(0x38, 0x40); // INT_ENABLE: bit 6, wake on motion.
+
+    writeRegister(0x6C, 0x07); // PWR_MGMT_2: gyroscope to standby.
+
+    // PWR_MGMT_1: cycle and temperature-disable set, sleep left clear. Cycle turns continuous sampling
+    // into one burst per interval; clearing sleep keeps the accelerometer, and the interrupt, alive.
+    writeRegister(0x6B, 0x28);
 }

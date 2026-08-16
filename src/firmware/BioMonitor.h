@@ -13,6 +13,7 @@
 #include "MAX30102Driver.h"
 #include "MPU6050Driver.h"
 #include "BLEDriver.h"
+#include "PowerManager.h"
 
 // How often the BLE characteristic is notified, in milliseconds. Also the averaging window handed to
 // MPU6050Driver::getEpochTemperatureC(), so one notification carries one epoch of temperature.
@@ -20,12 +21,10 @@
 
 // Drives the whole acquisition and reporting pipeline.
 //
-// Estimates heart rate from a PPG, which is badly corrupted by movement.
-// An optical pulse sensor cannot distinguish a heartbeat from the
-// sensor shifting against skin. The IMU is what resolves that. Rather than
-// filtering motion out of the signal, motion is fed into the filter as a measure
-// of how much the current reading can be trusted, so the estimate leans on its
-// own model while the wearer moves and back on the sensor once they settle.
+// Estimates heart rate from a PPG, which is badly corrupted by movement. An optical pulse sensor
+// cannot distinguish a heartbeat from the sensor shifting against skin, so motion from the IMU is fed
+// into the filter as a measure of how much the current reading can be trusted: the estimate leans on
+// its own model while the wearer moves and back on the sensor once they settle.
 //
 // Three execution contexts touch this object:
 //
@@ -37,6 +36,12 @@
 //
 // Contexts 1 and 2 run concurrently, so the accessors and the state they read are synchronized; see
 // the individual declarations.
+//
+// How much of that is running at any moment is decided by PowerManager and applied here, from the
+// sampling task, which is what keeps the I2C ownership rule above true. Off the wearer the device
+// idles the PPG and stops the filter, and after five still minutes it deep sleeps; waking from that
+// is a reset, so it comes back through setup() with nothing carried over. Everything about the
+// states, the thresholds and the sleep path is in docs/power-management.md.
 class BioMonitor
 {
 public:
@@ -52,21 +57,24 @@ public:
     // Accessors used by the BLE notification callback. All three are safe to call from a task other
     // than the sampling task, which is how they are used.
 
-    // Returns the current filtered heart rate in BPM. This is the filter's estimate, so it is defined
-    // even when no beat has been detected recently; before the first beat it reads the assumed
-    // resting rate.
+    // Returns the current filtered heart rate in BPM, or -1.0 when the device is not being worn.
+    //
+    // While worn this is the filter's estimate, so it is defined even when no beat has been detected
+    // recently; before the first beat it reads the assumed resting rate.
     float getFilteredHR() const;
 
     // Returns the largest motion magnitude seen since the previous call, in g with gravity removed,
     // and resets the peak.
     //
     // Reports a peak rather than an instantaneous value because motion is sampled at 50Hz but
-    // reported at 1Hz, and the instantaneous value decays toward zero between samples. Sampling it
-    // once per second would miss almost every movement that did not land just before a notification.
+    // reported at 1Hz, and the instantaneous value decays toward zero between samples.
     float getMotionScore();
 
     // Returns the mean temperature in degrees Celsius over the last completed epoch. See
     // MPU6050Driver::getEpochTemperatureC() for the epoch rules.
+    //
+    // Keeps reporting through IDLE, where it measures the room rather than anything near a body. No
+    // sentinel of its own, since the reading is real either way; the heart rate is what says which.
     float getEpochTemperatureC();
 
 private:
@@ -107,9 +115,12 @@ private:
     float lastAccelMag;  // Motion magnitude in g, decayed toward zero between interrupts.
     float motionPeak;    // Largest lastAccelMag since the last BLE report. Guarded by motionMux.
 
-    // Returns the current motion magnitude, reading the IMU only if the interrupt has fired since the
-    // last call and decaying the previous value otherwise.
-    float readAccelIfMotion();
+    // Returns the current motion magnitude, reading the IMU if the interrupt fired since the last
+    // call and decaying the previous value otherwise.
+    //
+    // motionEvent: whether the interrupt fired, taken from motionDetected by the caller rather than
+    //     read here, so that this and the power state machine cannot disagree about a tick.
+    float readAccelIfMotion(bool motionEvent);
 
     // Guards motionPeak, written by the sampling task and drained by the BLE timer task.
     portMUX_TYPE motionMux = portMUX_INITIALIZER_UNLOCKED;
@@ -124,6 +135,26 @@ private:
     // Retunes process noise from the size of the innovation, so a run of surprising measurements
     // leaves the filter more willing to move.
     void adaptProcessNoise(float innovation);
+
+    // Returns the filter to the state it starts a session in: the resting prior, wide covariance,
+    // baseline process noise.
+    void resetFilter();
+
+    PowerManager power;
+
+    // Whether the PPG is powered, so that a steady state does not rewrite its mode register each tick.
+    bool ppgAwake;
+
+    // Whether the IMU came up. Gates dormancy, which has no other wake source.
+    bool imuOk;
+
+    // Brings the hardware into line with a decision from the state machine. previous is the state
+    // before the deciding update(), so that entering a state can be told from remaining in one.
+    void applyPowerState(PowerManager::State previous, PowerManager::State next);
+
+    // Powers the device down and enters deep sleep. Returns only if the transition was abandoned,
+    // having changed nothing and put the state machine back into IDLE.
+    void enterDormant();
 
     // Formats the current readings for the BLE characteristic. Runs on the timer service task;
     // context is the BioMonitor instance.

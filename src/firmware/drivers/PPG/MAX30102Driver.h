@@ -28,10 +28,10 @@ public:
     // Returns false if the sensor does not respond.
     bool init();
 
-    // Shuts the LEDs and ADC down, and brings them back. wake() resets beat timing, since the
-    // interval across a sleep is meaningless.
-    //
-    // Neither is currently called anywhere; see the power management TODO in BioMonitor::runLoop().
+    // Shuts the LEDs and ADC down, and brings them back. wake() resets beat timing and empties the
+    // FIFO, so the first sample read afterwards is one taken after the wake. processSample() must not
+    // be called between the two: a shut down part still answers on I2C, and each call costs the
+    // library's 250ms FIFO timeout.
     void sleep();
     void wake();
 
@@ -50,8 +50,16 @@ public:
     // samples.
     float processSample();
 
+    // Whether the last processSample() saw enough reflected infrared to count as skin contact, which
+    // separates the one of its four negative returns that means the device is not being worn from the
+    // three that mean it is worn with no rate yet. False until processSample() has run since a wake().
+    bool fingerPresent() const { return lastFingerPresent; }
+
 private:
     MAX30105 sensor;
+
+    // Set by processSample() from the same sample the reported rate came from.
+    bool lastFingerPresent = false;
 
     // Tick count at the last accepted beat, for measuring the next interval.
     TickType_t lastBeatTick = 0;

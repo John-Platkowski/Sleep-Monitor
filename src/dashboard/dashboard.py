@@ -91,8 +91,8 @@ def notification_handler(sender, data):
         data: Raw notification bytes.
     """
     line_in = data.decode('utf-8').strip()
-    # Values can be negative (temperature, and the -1 no-reading sentinel), so the sign has to be part
-    # of each group or the line is silently rejected.
+    # Values can be negative (temperature, and the -1 no-reading sentinel), so the sign is part of
+    # each group.
     match = re.match(r"HR=(-?[\d.]+), Motion=(-?[\d.]+), Temp=(-?[\d.]+)", line_in)
 
     if match:

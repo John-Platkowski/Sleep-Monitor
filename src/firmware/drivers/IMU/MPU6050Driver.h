@@ -13,10 +13,9 @@
 
 // Driver for the MPU6500 accelerometer/gyroscope.
 //
-// The class name says 6050 for historical reasons. The breakout in this build is marked MPU-6050, but
-// it answers WHO_AM_I with 0x70 and follows the MPU6500 register map, which uses a different
-// temperature formula and has no motion duration register. init() rejects any other part rather than
-// reading a 6050 with 6500 constants and silently reporting wrong degrees.
+// The breakout in this build is marked MPU-6050, but it answers WHO_AM_I with 0x70 and follows the
+// MPU6500 register map, which uses a different temperature formula and has no motion duration
+// register. init() rejects any other part.
 //
 // Thread safety: addTemperatureSample() and getEpochTemperatureC() may be called concurrently from
 // different tasks and are used that way, with the sampling task accumulating and the BLE timer task
@@ -42,9 +41,19 @@ public:
 
     // Puts the part into low-power sleep, and brings it back out.
     //
-    // Neither is currently called anywhere; power management is still a TODO in BioMonitor::runLoop().
+    // Neither is used by the power manager, and sleep() must not be: it stops the accelerometer, which
+    // is what raises the wake-on-motion interrupt. enterLowPowerMotion() is used instead.
     void sleep();
     void wake();
+
+    // Drops to accelerometer-only low power mode with wake-on-motion still armed: roughly 23uA against
+    // the 3.5mA of both sensors running, with the INT pin unchanged. The part holds this across a host
+    // reset, since it keeps its own supply; init() is what puts it back into full power mode.
+    //
+    // threshold: replaces the one given to configureMotionInterrupt(), in the same 4mg counts.
+    // odrCode: LP_ACCEL_ODR, 0 for 0.24Hz to 11 for 500Hz. The interval it names is the worst case
+    //     delay between a movement and the interrupt.
+    void enterLowPowerMotion(uint8_t threshold, uint8_t odrCode);
 
     // One six-axis sample as raw signed sensor counts, not physical units. At the configured +/-2g
     // range, acceleration is 16384 counts per g. The gyroscope fields are populated but unread.
@@ -96,7 +105,6 @@ private:
     static constexpr uint32_t TEMP_SAMPLE_INTERVAL_MS = 100;
 
     // MPU6500 conversion: degC = (raw - RoomTemp_Offset)/333.87 + 21.0, where RoomTemp_Offset is 0.
-    // These differ from the MPU6050's 340 and 36.53, which is why init() refuses to run on a 6050.
     static constexpr float TEMP_SCALE = 333.87f;
     static constexpr float TEMP_OFFSET_C = 21.0f;
 
