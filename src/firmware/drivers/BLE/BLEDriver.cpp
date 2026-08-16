@@ -2,8 +2,7 @@
 
 bool BLEDriver::init()
 {
-    // Set up serial communication
-    Serial.begin(115200);
+    // Serial is already started in setup(); starting it again here reinitialized the port mid-boot.
     // Create the BLE Device
     BLEDevice::init("MyESP32");
 

@@ -1,57 +1,58 @@
 #include "MPU6050Driver.h"
-// https://invensense.tdk.com/wp-content/uploads/2015/02/MPU-6000-Register-Map1.pdf
-// Weirdly enough, the MPU6050 we recieved does not conform to the 6050 datasheet; It matches the 6500 datasheet instead.
 #include <math.h>
-
-// Helper to keep track of which chip we actually have
-static uint8_t _deviceId = 0x68; 
 
 bool MPU6050Driver::init()
 {
+    // SDA on 21, SCL on 22, at 400kHz fast mode. This owns bus setup for the whole system;
+    // MAX30102Driver::init() reuses the bus opened here and must therefore run after it.
     Wire.begin(21, 22);
     Wire.setClock(400000);
     delay(100);
-    
-    // Check ID
-    _deviceId = readRegister(0x75);
-    
-    // Accept 0x68 (MPU6050) or 0x70 (MPU6500/9250)
-    if (_deviceId != 0x68 && _deviceId != 0x70) 
+
+    // A 6050 would answer here and read plausibly, so this has to be an equality test rather than a
+    // presence test.
+    uint8_t whoAmI = readRegister(0x75);
+    if (whoAmI != MPU_WHOAMI_6500)
     {
-        Serial.print("ERROR: Unknown MPU ID: 0x");
-        Serial.println(_deviceId, HEX);
+        Serial.print("ERROR: expected MPU6500 (0x70), got: 0x");
+        Serial.println(whoAmI, HEX);
         return false;
     }
     
-    // Wake up
-    writeRegister(0x6B, 0x00); 
-    // Clear any stuck interrupts from before the reboot
-    readRegister(0x3A); // Read INT_STATUS
+    // PWR_MGMT_1: clear the sleep bit set at power-on.
+    writeRegister(0x6B, 0x00);
+
+    // A latched interrupt can survive a reboot and would leave the INT pin asserted forever, so drain
+    // INT_STATUS before anyone attaches a handler.
+    readRegister(0x3A);
     Serial.println("MPU initialized successfully");
     return true;
 }
 
-void MPU6050Driver::configureMotionInterrupt(uint8_t threshold, uint8_t duration)
+// The MPU6500 wake-on-motion block has no duration register, so motion is reported as soon as one
+// sample clears the threshold. The 6050's MOT_DUR (0x20) has no equivalent here, which is why this
+// takes a threshold only.
+void MPU6050Driver::configureMotionInterrupt(uint8_t threshold)
 {
     writeRegister(0x1C, 0x00); // ACCEL_CONFIG: +/- 2g
     writeRegister(0x1B, 0x00); // GYRO_CONFIG: +/- 250dps
     writeRegister(0x19, 0x09); // Sample Rate 100Hz
     writeRegister(0x1A, 0x03); // DLPF ~40Hz bandwidth
-    
-    // Interrupt Pin Configuration (Active LOW, Push-Pull, Active LOW)
-    // 0xA0 = 1010_0000
-    writeRegister(0x37, 0xA0); 
-    Serial.println(String(_deviceId));
-        // Wake-on-Motion Threshold (1 LSB = 4mg)
-        writeRegister(0x1F, threshold); 
-        
-        // ACCEL_INTEL_CTRL
-        // 0xC0 = 1100_0000, Enable + Compare Mode
-        writeRegister(0x69, 0xC0); 
 
-        // INT_ENABLE 
-        // Bit 6 is Wake on Motion
-        writeRegister(0x38, 0x40); 
+    // Interrupt Pin Configuration (Active LOW, Push-Pull, Latch until read)
+    // 0xA0 = 1010_0000
+    writeRegister(0x37, 0xA0);
+
+    // Wake-on-Motion Threshold (1 LSB = 4mg)
+    writeRegister(0x1F, threshold);
+
+    // ACCEL_INTEL_CTRL
+    // 0xC0 = 1100_0000, Enable + Compare Mode
+    writeRegister(0x69, 0xC0);
+
+    // INT_ENABLE
+    // Bit 6 is Wake on Motion
+    writeRegister(0x38, 0x40);
 }
 
 void MPU6050Driver::clearInterrupt()
@@ -72,6 +73,8 @@ uint8_t MPU6050Driver::readRegister(uint8_t reg)
 {
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(reg);
+    // Repeated start rather than a stop, so no other master can take the bus between addressing the
+    // register and reading it back.
     Wire.endTransmission(false);
     Wire.requestFrom(MPU_ADDR, (uint8_t)1, (uint8_t)true);
     return Wire.read();
@@ -80,43 +83,64 @@ uint8_t MPU6050Driver::readRegister(uint8_t reg)
 int16_t MPU6050Driver::readTempRaw()
 {
     Wire.beginTransmission(MPU_ADDR);
-    Wire.write(0x41);  // TEMP_OUT_H
+    Wire.write(0x41);  // TEMP_OUT_H, with TEMP_OUT_L following at 0x42.
     Wire.endTransmission(false);
     Wire.requestFrom(MPU_ADDR, (uint8_t)2, (uint8_t)true);
     uint8_t hi = Wire.read();
     uint8_t lo = Wire.read();
+    // Big-endian on the wire, and signed: the die reads below the reference temperature as negative.
     return (int16_t)(hi << 8 | lo);
 }
 
 void MPU6050Driver::addTemperatureSample(uint32_t nowMs)
 {
-    if (tempEpochCount > 0 && (nowMs - tempLastSampleMs) < TEMP_SAMPLE_INTERVAL_MS)
+    // getEpochTemperatureC() can reset the epoch from the BLE timer task between any two lines here,
+    // so read the pacing state under the lock.
+    portENTER_CRITICAL(&tempMux);
+    bool due = (tempEpochCount == 0) || ((nowMs - tempLastSampleMs) >= TEMP_SAMPLE_INTERVAL_MS);
+    portEXIT_CRITICAL(&tempMux);
+
+    if (!due)
     {
         return;
     }
+
+    // I2C takes milliseconds; never hold the spinlock across it.
+    int16_t raw = readTempRaw();
+    float c = (raw / TEMP_SCALE) + TEMP_OFFSET_C;
+
+    portENTER_CRITICAL(&tempMux);
     if (tempEpochCount == 0)
     {
         tempEpochStartMs = nowMs;
     }
-    int16_t raw = readTempRaw();
-    float c = (raw / TEMP_SCALE) + TEMP_OFFSET_C;
     tempEpochSum += c;
     tempEpochCount++;
     tempLastSampleMs = nowMs;
+    portEXIT_CRITICAL(&tempMux);
 }
 
 float MPU6050Driver::getEpochTemperatureC(uint32_t nowMs, uint32_t epochDurationMs)
 {
+    // Runs on the BLE timer task while the sampling task is accumulating, so the read-average-reset
+    // sequence has to be atomic as a whole. No I2C in here.
+    portENTER_CRITICAL(&tempMux);
+
     if (tempEpochCount == 0)
     {
-        return tempHasReported ? tempLastReportedC : 0.0f;
+        float held = tempHasReported ? tempLastReportedC : 0.0f;
+        portEXIT_CRITICAL(&tempMux);
+        return held;
     }
 
     uint32_t elapsed = nowMs - tempEpochStartMs;
     if (elapsed < epochDurationMs)
     {
-        return tempHasReported ? tempLastReportedC : (tempEpochSum / tempEpochCount);
+        float partial = tempHasReported ? tempLastReportedC : (tempEpochSum / tempEpochCount);
+        portEXIT_CRITICAL(&tempMux);
+        return partial;
     }
+
     float mean = tempEpochSum / (float)tempEpochCount;
     if (tempHasReported)
     {
@@ -135,15 +159,20 @@ float MPU6050Driver::getEpochTemperatureC(uint32_t nowMs, uint32_t epochDuration
     tempEpochSum = 0.0f;
     tempEpochCount = 0;
     tempEpochStartMs = nowMs;
+
+    portEXIT_CRITICAL(&tempMux);
     return mean;
 }
 
 MPU6050Driver::Data MPU6050Driver::read()
 {
+    // Accelerometer, temperature, and gyroscope occupy 14 consecutive registers from 0x3B, so one
+    // burst read gets all six axes from a single instant. Separate register reads could straddle a
+    // sensor update and mix two samples together.
     Data data = {0, 0, 0, 0, 0, 0};
-    
+
     Wire.beginTransmission(MPU_ADDR);
-    Wire.write(0x3B); // starting register ACCEL_XOUT_H
+    Wire.write(0x3B); // ACCEL_XOUT_H, first of the 14.
     uint8_t error = Wire.endTransmission(false);
     if (error != 0)
     {
@@ -166,24 +195,29 @@ MPU6050Driver::Data MPU6050Driver::read()
         buffer[i] = Wire.read();
     }
     
-    data.ax = (int16_t)(buffer[0] << 8 | buffer[1]);   // acceleration x
-    data.ay = (int16_t)(buffer[2] << 8 | buffer[3]);   // acceleration y
-    data.az = (int16_t)(buffer[4] << 8 | buffer[5]);   // acceleration z
-    // buffer[6], buffer[7] = TEMP_OUT
-    data.gx = (int16_t)(buffer[8] << 8 | buffer[9]);   // gyro x
-    data.gy = (int16_t)(buffer[10] << 8 | buffer[11]); // gyro y
-    data.gz = (int16_t)(buffer[12] << 8 | buffer[13]); // gyro z
+    // Each axis arrives as a big-endian signed pair. Bytes 6 and 7 are TEMP_OUT, which
+    // addTemperatureSample() reads separately on its own slower schedule.
+    data.ax = (int16_t)(buffer[0] << 8 | buffer[1]);
+    data.ay = (int16_t)(buffer[2] << 8 | buffer[3]);
+    data.az = (int16_t)(buffer[4] << 8 | buffer[5]);
+    data.gx = (int16_t)(buffer[8] << 8 | buffer[9]);
+    data.gy = (int16_t)(buffer[10] << 8 | buffer[11]);
+    data.gz = (int16_t)(buffer[12] << 8 | buffer[13]);
     return data;
 }
 
 float MPU6050Driver::getAccelerationMagnitude(Data& data)
 {
-    const float SCALE = 16384.0f; 
-    
+    // Counts per g at the +/-2g range set in configureMotionInterrupt().
+    const float SCALE = 16384.0f;
+
     float ax_g = data.ax / SCALE;
     float ay_g = data.ay / SCALE;
     float az_g = data.az / SCALE;
 
+    // The vector magnitude includes gravity, which reads 1g whatever direction the sensor faces.
+    // Subtracting 1 makes the result orientation-independent: any stationary pose reads near zero, and
+    // only real movement registers.
     float total_force = sqrt(ax_g * ax_g + ay_g * ay_g + az_g * az_g);
     return abs(total_force - 1.0f);
 }
