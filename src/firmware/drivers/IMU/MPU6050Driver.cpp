@@ -18,10 +18,10 @@ bool MPU6050Driver::init()
     }
     
     // PWR_MGMT_1: clear the sleep bit set at power-on, along with the cycle and temperature-disable
-    // bits enterLowPowerMotion() sets. PWR_MGMT_2: all six axes out of standby, which the same call
-    // puts the gyroscope into. Neither is necessarily at its power-on default.
+    // bits enterLowPowerMotion() sets. PWR_MGMT_2: accelerometer on, gyroscope in standby, since
+    // nothing reads it and it draws about 3mA. Neither is necessarily at its power-on default.
     writeRegister(0x6B, 0x00);
-    writeRegister(0x6C, 0x00);
+    writeRegister(0x6C, 0x07);
 
     // Drain INT_STATUS before anyone attaches a handler; a latched interrupt survives a reboot.
     readRegister(0x3A);

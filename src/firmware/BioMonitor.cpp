@@ -317,7 +317,7 @@ void BioMonitor::enterDormant()
     // Released, not slept: deep sleep stops the radio's clocks underneath the controller.
     ble.shutdown();
 
-    // Stays awake because it is the wake source, at roughly 23uA rather than 3.5mA.
+    // Stays awake because it is the wake source, at roughly 23uA rather than 450uA.
     imu.enterLowPowerMotion(DORMANT_WOM_THRESHOLD, DORMANT_LP_ODR);
 
     // Clear the latch once more, since reconfiguring the accelerometer can leave a comparison pending.

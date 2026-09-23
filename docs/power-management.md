@@ -18,8 +18,8 @@ stateDiagram-v2
 
 | State | PPG | IMU | BLE | ESP32 | Draw |
 |---|---|---|---|---|---|
-| MONITORING | 50 Hz | accel + gyro | advertising, notifying 1 Hz | running | ~50 mA |
-| IDLE | 5 samples every 2 s | accel + gyro | advertising, notifying 1 Hz | running | ~48 mA |
+| MONITORING | 50 Hz | accel only, gyro in standby | advertising, notifying 1 Hz | running | ~47 mA |
+| IDLE | 5 samples every 2 s | accel only, gyro in standby | advertising, notifying 1 Hz | running | ~45 mA |
 | DORMANT | shut down | accel-only low power, WOM armed | stack released | deep sleep | ~40 µA |
 
 DORMANT does not transition anywhere. The device leaves it through deep sleep, which ends in a reset,
@@ -154,8 +154,8 @@ cannot report the movement that would end dormancy.
 
 This matters more than it sounds. The sensors run from their own supply and keep drawing through an
 ESP32 deep sleep, so whatever is left running sets the floor for the whole device rather than the
-chip's own current. Leaving the IMU at its full 3.5 mA would have made DORMANT worth about 11×
-instead of about 1000×.
+chip's own current. Leaving the IMU as it runs while awake, accelerometer sampling continuously at
+about 450 µA, would have made DORMANT worth about 100× instead of about 1000×.
 
 `enterLowPowerMotion()` is the alternative: the accelerometer-only low power mode from §4.2 of the
 MPU6500 register map, which is also the tail of the datasheet's own wake-on-motion procedure. The
@@ -247,9 +247,7 @@ is safe to call from the BLE timer task; everything else is confined to the samp
 
 ## Not done
 
-- The **gyroscope is still powered during MONITORING** and nothing reads it. `PWR_MGMT_2 = 0x07` would
-  save ~3 mA. It would make `Data::gx/gy/gz` read zero, which no caller would notice today.
-- **MONITORING's ~50 mA is the real battery limit** — a 500 mAh cell is roughly one night. CPU
+- **MONITORING's ~47 mA is the real battery limit** — a 500 mAh cell is roughly one night. CPU
   frequency scaling (240 → 80 MHz, which BLE still supports) is the next meaningful win.
 - A **failed PPG `init()`** leaves `processSample()` spending the library's 250 ms FIFO timeout on
   every call, in MONITORING and in each IDLE probe window.

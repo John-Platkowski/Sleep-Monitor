@@ -47,7 +47,7 @@ public:
     void wake();
 
     // Drops to accelerometer-only low power mode with wake-on-motion still armed: roughly 23uA against
-    // the 3.5mA of both sensors running, with the INT pin unchanged. The part holds this across a host
+    // the 450uA of the accelerometer running continuously, with the INT pin unchanged. The part holds this across a host
     // reset, since it keeps its own supply; init() is what puts it back into full power mode.
     //
     // threshold: replaces the one given to configureMotionInterrupt(), in the same 4mg counts.
@@ -56,7 +56,8 @@ public:
     void enterLowPowerMotion(uint8_t threshold, uint8_t odrCode);
 
     // One six-axis sample as raw signed sensor counts, not physical units. At the configured +/-2g
-    // range, acceleration is 16384 counts per g. The gyroscope fields are populated but unread.
+    // range, acceleration is 16384 counts per g. The gyroscope fields carry no live data, since init()
+    // leaves the gyroscope in standby.
     struct Data { float ax, ay, az, gx, gy, gz;};
 
     // Reads all six axes in a single burst.
